@@ -390,6 +390,32 @@ class Dispatch(Base):
 
 
 # ============================================================
+# 6. 日出貨彙總 (DailySummary)
+# ============================================================
+
+class DailySummary(Base):
+    """按日期與工程儲存彙總出貨資料（不記錄個別車次）。"""
+
+    __tablename__ = "daily_summaries"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    psi = Column(Integer, nullable=True, comment="預拌強度 (PSI)")
+    total_m3 = Column(Float, nullable=False, comment="當日總出貨 m³")
+    trips = Column(Integer, nullable=False, default=0, comment="車次數")
+    note = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    project = relationship("Project")
+
+    __table_args__ = (
+        Index('ix_summary_date_project', 'date', 'project_id'),
+    )
+
+
+# ============================================================
 # Database Initialization
 # ============================================================
 

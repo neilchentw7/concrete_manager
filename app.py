@@ -18,12 +18,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
+from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 import io
 
 from models import (
     init_db, get_db, SessionLocal, init_default_settings,
-    Project, Mix, Truck, ProjectPrice, Dispatch, Setting, MaterialPrice
+    Project, Mix, Truck, ProjectPrice, Dispatch, Setting, MaterialPrice,
+    DailySummary
 )
 from calculator import DispatchCalculator
 
@@ -100,7 +102,10 @@ class TruckResponse(BaseModel):
     code: str
     plate_no: str
     driver_name: Optional[str]
+    driver_phone: Optional[str]
     default_load_m3: float
+    fuel_l_per_km: float
+    driver_pay_per_trip: float
     is_active: bool
     
     class Config:
@@ -152,6 +157,16 @@ class PriceCreate(BaseModel):
     effective_from: Optional[date] = None
     effective_to: Optional[date] = None
 
+
+# --- 系統設定 ---
+class SettingResponse(BaseModel):
+    key: str
+    value: str
+
+
+class SettingUpdate(BaseModel):
+    value: str
+
 # --- 出車 ---
 class DispatchItem(BaseModel):
     """單車次資料"""
@@ -183,6 +198,24 @@ class DispatchResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class DailySummaryCreate(BaseModel):
+    date: date
+    project: str
+    psi: Optional[int] = None
+    total_m3: float
+    trips: int = 0
+
+
+class DailySummaryResponse(BaseModel):
+    id: int
+    date: date
+    project_code: str
+    project_name: str
+    psi: Optional[int]
+    total_m3: float
+    trips: int
 
 
 # ============================================================
@@ -226,6 +259,16 @@ async def root():
 async def admin_page():
     """基礎資料管理介面"""
     return get_admin_page_html()
+
+
+def get_project_by_code_or_name(db: Session, query: str) -> Project:
+    """用代碼或名稱尋找工程（精確匹配）。"""
+    project = db.query(Project).filter(
+        (Project.code == query) | (Project.name == query)
+    ).first()
+    if not project:
+        raise HTTPException(404, f"找不到工程：{query}")
+    return project
 
 
 # ============================================================
@@ -273,9 +316,35 @@ def update_project(project_id: int, data: ProjectCreate, db: Session = Depends(g
     
     for key, value in data.model_dump().items():
         setattr(project, key, value)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: int, db: Session = Depends(get_db)):
+    """刪除工程"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "工程不存在")
+
+    has_dispatch = db.query(Dispatch).filter(Dispatch.project_id == project_id).first()
+    has_price = db.query(ProjectPrice).filter(ProjectPrice.project_id == project_id).first()
+
+    if has_dispatch or has_price:
+        project.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有出車或單價紀錄，改為停用"}
+
+    try:
+        db.delete(project)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除工程"}
+    except SQLAlchemyError:
+        db.rollback()
+        project.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -331,9 +400,34 @@ def update_truck(truck_id: int, data: TruckCreate, db: Session = Depends(get_db)
     for key, value in data.model_dump().items():
         if key != 'code':  # 不更新代號
             setattr(truck, key, value)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/trucks/{truck_id}")
+def delete_truck(truck_id: int, db: Session = Depends(get_db)):
+    """刪除車輛"""
+    truck = db.query(Truck).filter(Truck.id == truck_id).first()
+    if not truck:
+        raise HTTPException(404, "車輛不存在")
+
+    has_dispatch = db.query(Dispatch).filter(Dispatch.truck_id == truck_id).first()
+
+    if has_dispatch:
+        truck.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有出車紀錄，改為停用"}
+
+    try:
+        db.delete(truck)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除車輛"}
+    except SQLAlchemyError:
+        db.rollback()
+        truck.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -390,9 +484,34 @@ def update_material_price(mp_id: int, data: MaterialPriceCreate, db: Session = D
     for key, value in data.model_dump().items():
         if key != 'price_id':  # 不更新代碼
             setattr(mp, key, value)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/material-prices/{mp_id}")
+def delete_material_price(mp_id: int, db: Session = Depends(get_db)):
+    """刪除材料單價"""
+    mp = db.query(MaterialPrice).filter(MaterialPrice.id == mp_id).first()
+    if not mp:
+        raise HTTPException(404, "材料單價不存在")
+
+    has_mix = db.query(Mix).filter(Mix.material_price_id == mp_id).first()
+
+    if has_mix:
+        mp.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有配比使用，改為停用"}
+
+    try:
+        db.delete(mp)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除材料單價"}
+    except SQLAlchemyError:
+        db.rollback()
+        mp.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 @app.post("/api/material-prices/{mp_id}/recalc-mixes")
 def recalc_mixes_cost(mp_id: int, db: Session = Depends(get_db)):
@@ -491,9 +610,36 @@ def update_mix(mix_id: int, data: MixCreate, db: Session = Depends(get_db)):
         mp = db.query(MaterialPrice).filter(MaterialPrice.id == mix.material_price_id).first()
         if mp:
             mix.material_cost_per_m3 = mix.calc_material_cost(mp)
-    
+
     db.commit()
     return {"status": "ok", "material_cost_per_m3": mix.material_cost_per_m3}
+
+
+@app.delete("/api/mixes/{mix_id}")
+def delete_mix(mix_id: int, db: Session = Depends(get_db)):
+    """刪除配比"""
+    mix = db.query(Mix).filter(Mix.id == mix_id).first()
+    if not mix:
+        raise HTTPException(404, "配比不存在")
+
+    has_dispatch = db.query(Dispatch).filter(Dispatch.mix_id == mix_id).first()
+    has_price = db.query(ProjectPrice).filter(ProjectPrice.mix_id == mix_id).first()
+    referenced_by_project = db.query(Project).filter(Project.default_mix_id == mix_id).first()
+
+    if has_dispatch or has_price or referenced_by_project:
+        mix.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有出車、單價或工程引用，改為停用"}
+
+    try:
+        db.delete(mix)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除配比"}
+    except SQLAlchemyError:
+        db.rollback()
+        mix.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -542,9 +688,27 @@ def create_price(data: PriceCreate, db: Session = Depends(get_db)):
     else:
         price = ProjectPrice(**data.model_dump())
         db.add(price)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/prices/{price_id}")
+def delete_price(price_id: int, db: Session = Depends(get_db)):
+    """刪除工程單價"""
+    price = db.query(ProjectPrice).filter(ProjectPrice.id == price_id).first()
+    if not price:
+        raise HTTPException(404, "單價不存在")
+
+    try:
+        db.delete(price)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除工程單價"}
+    except SQLAlchemyError:
+        db.rollback()
+        price.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -623,7 +787,7 @@ def list_dispatches(
             query = query.filter(Dispatch.project_id == project.id)
     
     dispatches = query.order_by(Dispatch.date.desc(), Dispatch.dispatch_no).limit(limit).all()
-    
+
     return [{
         "id": d.id,
         "dispatch_no": d.dispatch_no,
@@ -649,6 +813,77 @@ def list_dispatches(
 
 
 # ============================================================
+# 日彙總 API
+# ============================================================
+
+@app.get("/api/daily-summaries", response_model=List[DailySummaryResponse])
+def list_daily_summaries(
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    project_code: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(DailySummary).join(Project)
+    if start_date:
+        query = query.filter(DailySummary.date >= start_date)
+    if end_date:
+        query = query.filter(DailySummary.date <= end_date)
+    if project_code:
+        query = query.filter(Project.code == project_code)
+
+    summaries = query.order_by(DailySummary.date.desc()).all()
+    results = []
+    for s in summaries:
+        results.append({
+            "id": s.id,
+            "date": s.date,
+            "project_code": s.project.code,
+            "project_name": s.project.name,
+            "psi": s.psi,
+            "total_m3": s.total_m3,
+            "trips": s.trips
+        })
+    return results
+
+
+@app.post("/api/daily-summaries", response_model=DailySummaryResponse)
+def create_daily_summary(data: DailySummaryCreate, db: Session = Depends(get_db)):
+    project = get_project_by_code_or_name(db, data.project)
+
+    summary = db.query(DailySummary).filter(
+        DailySummary.date == data.date,
+        DailySummary.project_id == project.id,
+        DailySummary.psi == data.psi
+    ).first()
+
+    if summary:
+        summary.total_m3 = data.total_m3
+        summary.trips = data.trips
+    else:
+        summary = DailySummary(
+            date=data.date,
+            project_id=project.id,
+            psi=data.psi,
+            total_m3=data.total_m3,
+            trips=data.trips
+        )
+        db.add(summary)
+
+    db.commit()
+    db.refresh(summary)
+
+    return {
+        "id": summary.id,
+        "date": summary.date,
+        "project_code": project.code,
+        "project_name": project.name,
+        "psi": summary.psi,
+        "total_m3": summary.total_m3,
+        "trips": summary.trips
+    }
+
+
+# ============================================================
 # 報表 API
 # ============================================================
 
@@ -662,16 +897,19 @@ def report_daily(
         Dispatch.date == date_str,
         Dispatch.status != "cancelled"
     ).all()
-    
+    summaries = db.query(DailySummary).join(Project).filter(
+        DailySummary.date == date_str
+    ).all()
+
     summary = {
         "date": date_str,
-        "total_trips": len(dispatches),
-        "total_m3": sum(d.load_m3 for d in dispatches),
+        "total_trips": len(dispatches) + sum(s.trips for s in summaries),
+        "total_m3": sum(d.load_m3 for d in dispatches) + sum(s.total_m3 for s in summaries),
         "total_revenue": sum(d.total_revenue for d in dispatches),
         "total_cost": sum(d.total_cost for d in dispatches),
         "gross_profit": sum(d.gross_profit for d in dispatches),
     }
-    
+
     by_project = {}
     for d in dispatches:
         key = d.project.code
@@ -685,6 +923,16 @@ def report_daily(
         by_project[key]["revenue"] += d.total_revenue
         by_project[key]["cost"] += d.total_cost
         by_project[key]["profit"] += d.gross_profit
+
+    for s in summaries:
+        key = s.project.code
+        if key not in by_project:
+            by_project[key] = {
+                "project_name": s.project.name,
+                "trips": 0, "m3": 0, "revenue": 0, "cost": 0, "profit": 0
+            }
+        by_project[key]["trips"] += s.trips
+        by_project[key]["m3"] += s.total_m3
     
     return {
         "summary": summary,
@@ -703,17 +951,21 @@ def report_monthly(
         extract('month', Dispatch.date) == month,
         Dispatch.status != "cancelled"
     ).all()
-    
+    summaries = db.query(DailySummary).join(Project).filter(
+        extract('year', DailySummary.date) == year,
+        extract('month', DailySummary.date) == month,
+    ).all()
+
     summary = {
         "year": year,
         "month": month,
-        "total_trips": len(dispatches),
-        "total_m3": sum(d.load_m3 for d in dispatches),
+        "total_trips": len(dispatches) + sum(s.trips for s in summaries),
+        "total_m3": sum(d.load_m3 for d in dispatches) + sum(s.total_m3 for s in summaries),
         "total_revenue": sum(d.total_revenue for d in dispatches),
         "total_cost": sum(d.total_cost for d in dispatches),
         "gross_profit": sum(d.gross_profit for d in dispatches),
     }
-    
+
     # 按工程統計
     by_project = {}
     for d in dispatches:
@@ -728,7 +980,17 @@ def report_monthly(
         by_project[key]["revenue"] += d.total_revenue
         by_project[key]["cost"] += d.total_cost
         by_project[key]["profit"] += d.gross_profit
-    
+
+    for s in summaries:
+        key = s.project.code
+        if key not in by_project:
+            by_project[key] = {
+                "project_name": s.project.name,
+                "trips": 0, "m3": 0, "revenue": 0, "cost": 0, "profit": 0
+            }
+        by_project[key]["trips"] += s.trips
+        by_project[key]["m3"] += s.total_m3
+
     # 按日統計
     by_day = {}
     for d in dispatches:
@@ -739,7 +1001,14 @@ def report_monthly(
         by_day[key]["m3"] += d.load_m3
         by_day[key]["revenue"] += d.total_revenue
         by_day[key]["profit"] += d.gross_profit
-    
+
+    for s in summaries:
+        key = s.date.day
+        if key not in by_day:
+            by_day[key] = {"trips": 0, "m3": 0, "revenue": 0, "profit": 0}
+        by_day[key]["trips"] += s.trips
+        by_day[key]["m3"] += s.total_m3
+
     return {
         "summary": summary,
         "by_project": by_project,
@@ -767,9 +1036,17 @@ def report_project(
         query = query.filter(Dispatch.date >= start_date)
     if end_date:
         query = query.filter(Dispatch.date <= end_date)
-    
+
     dispatches = query.order_by(Dispatch.date).all()
-    
+    summaries = db.query(DailySummary).filter(
+        DailySummary.project_id == project.id
+    )
+    if start_date:
+        summaries = summaries.filter(DailySummary.date >= start_date)
+    if end_date:
+        summaries = summaries.filter(DailySummary.date <= end_date)
+    summaries = summaries.order_by(DailySummary.date).all()
+
     return {
         "project": {
             "code": project.code,
@@ -777,8 +1054,8 @@ def report_project(
             "default_distance_km": project.default_distance_km,
         },
         "summary": {
-            "total_trips": len(dispatches),
-            "total_m3": sum(d.load_m3 for d in dispatches),
+            "total_trips": len(dispatches) + sum(s.trips for s in summaries),
+            "total_m3": sum(d.load_m3 for d in dispatches) + sum(s.total_m3 for s in summaries),
             "total_revenue": sum(d.total_revenue for d in dispatches),
             "total_cost": sum(d.total_cost for d in dispatches),
             "gross_profit": sum(d.gross_profit for d in dispatches),
@@ -793,7 +1070,13 @@ def report_project(
             "revenue": d.total_revenue,
             "cost": d.total_cost,
             "profit": d.gross_profit,
-        } for d in dispatches]
+        } for d in dispatches],
+        "daily_summaries": [{
+            "date": s.date.isoformat(),
+            "psi": s.psi,
+            "total_m3": s.total_m3,
+            "trips": s.trips
+        } for s in summaries]
     }
 
 
@@ -801,24 +1084,25 @@ def report_project(
 # 設定 API
 # ============================================================
 
-@app.get("/api/settings")
+@app.get("/api/settings", response_model=List[SettingResponse])
 def list_settings(db: Session = Depends(get_db)):
     """列出所有設定"""
     settings = db.query(Setting).all()
-    return {s.key: s.value for s in settings}
+    return [SettingResponse(key=s.key, value=s.value) for s in settings]
+
 
 @app.put("/api/settings/{key}")
-def update_setting(key: str, value: str, db: Session = Depends(get_db)):
+def update_setting(key: str, data: SettingUpdate, db: Session = Depends(get_db)):
     """更新設定"""
     setting = db.query(Setting).filter(Setting.key == key).first()
     if setting:
-        setting.value = value
+        setting.value = data.value
     else:
-        setting = Setting(key=key, value=value)
+        setting = Setting(key=key, value=data.value)
         db.add(setting)
-    
+
     db.commit()
-    return {"status": "ok"}
+    return {"status": "ok", "key": key, "value": setting.value}
 
 
 # ============================================================
@@ -992,62 +1276,62 @@ def get_main_page_html():
         
         <!-- 主功能區 -->
         <div class="tabs">
-            <button class="tab active" onclick="showTab('dispatch')">📥 快速出車</button>
-            <button class="tab" onclick="showTab('records')">📋 出車紀錄</button>
-            <button class="tab" onclick="showTab('master')">⚙️ 基礎資料</button>
+            <button class="tab active" onclick="showTab(event, 'dispatch')">📥 快速出車</button>
+            <button class="tab" onclick="showTab(event, 'records')">📋 出車紀錄</button>
+            <button class="tab" onclick="showTab(event, 'master')">⚙️ 基礎資料</button>
         </div>
         
         <!-- 快速出車 -->
         <div id="tab-dispatch" class="card">
             <h2>📥 快速出車登錄</h2>
-            <p style="color:#666; margin-bottom:20px;">選擇日期和工程後，只需輸入每車的「車號/司機」和「載量」</p>
-            
+            <p style="color:#666; margin-bottom:20px;">只輸入總出貨量與車次，不需逐車登錄司機資訊。</p>
+
             <div class="form-row">
                 <div class="form-group">
                     <label>📅 日期</label>
-                    <input type="date" id="dispatch-date">
+                    <input type="date" id="summary-date">
                 </div>
                 <div class="form-group wide">
                     <label>🏗️ 工程</label>
-                    <select id="dispatch-project"><option>載入中...</option></select>
+                    <select id="summary-project"><option>載入中...</option></select>
                 </div>
                 <div class="form-group">
-                    <label>預設強度</label>
-                    <input type="text" id="default-psi" value="3000">
+                    <label>預拌強度 (PSI)</label>
+                    <input type="number" id="summary-psi" value="3000">
+                </div>
+                <div class="form-group">
+                    <label>總出貨量 (m³)</label>
+                    <input type="number" id="summary-total-m3" step="0.5" value="0" oninput="renderTripSummary()">
                 </div>
             </div>
-            
-            <h3 style="margin: 20px 0 10px;">🚚 車次明細</h3>
-            <table id="dispatch-table">
-                <thead>
-                    <tr>
-                        <th style="width:40px">#</th>
-                        <th>車號/司機</th>
-                        <th style="width:100px">載量(m³)</th>
-                        <th style="width:100px">強度</th>
-                        <th style="width:100px">距離(km)</th>
-                        <th style="width:60px">操作</th>
-                    </tr>
-                </thead>
-                <tbody id="dispatch-body"></tbody>
-            </table>
-            
-            <div style="margin-top:20px; display:flex; gap:10px;">
-                <button class="btn btn-primary" onclick="addRow()">+ 新增一行</button>
-                <button class="btn btn-primary" onclick="addRows(5)">+ 新增五行</button>
-                <button class="btn btn-success" onclick="previewDispatch()">👁️ 預覽</button>
+
+            <div class="card" style="background:#f8f9ff; border:1px solid #e5e7eb;">
+                <div class="form-row" style="align-items:center;">
+                    <div class="form-group">
+                        <label>車次數量</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary" onclick="updateTripCount(-5)">-5</button>
+                            <button class="btn btn-secondary" onclick="updateTripCount(-1)">-1</button>
+                            <span id="trip-count" style="font-size:22px; font-weight:700; color:#4b5563; width:60px; text-align:center;">0</span>
+                            <button class="btn btn-secondary" onclick="updateTripCount(1)">+1</button>
+                            <button class="btn btn-secondary" onclick="updateTripCount(5)">+5</button>
+                        </div>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>今日概況</label>
+                        <div style="display:flex; gap:20px; flex-wrap:wrap; color:#4b5563;">
+                            <div>車次：<strong id="summary-trips">0</strong> 趟</div>
+                            <div>總量：<strong id="summary-total">0</strong> m³</div>
+                            <div>預估總距離：<strong id="summary-distance">0</strong> km</div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-        
-        <!-- 預覽結果 -->
-        <div id="result-area" class="card">
-            <h2>📊 預覽結果</h2>
-            <div id="result-summary"></div>
-            <table id="result-table">
-                <thead id="result-thead"></thead>
-                <tbody id="result-tbody"></tbody>
-            </table>
-            <button class="btn btn-success" onclick="commitDispatch()" style="margin-top:20px;">✅ 確認寫入</button>
+
+            <div style="margin-top:20px; display:flex; gap:10px;">
+                <button class="btn btn-success" onclick="saveDailySummary()">💾 紀錄</button>
+                <button class="btn btn-secondary" onclick="resetSummaryForm()">↺ 重填</button>
+            </div>
         </div>
         
         <!-- 出車紀錄 -->
@@ -1095,46 +1379,40 @@ def get_main_page_html():
     </div>
     
     <script>
-        // 初始化
         const today = new Date().toISOString().split('T')[0];
-        document.getElementById('dispatch-date').value = today;
+        document.getElementById('summary-date').value = today;
         document.getElementById('query-start').value = today;
         document.getElementById('query-end').value = today;
-        
-        let currentBatch = null;
-        let projects = [], trucks = [], mixes = [];
-        
-        // 載入資料
+
+        let projects = [], trucks = [], mixes = [], tripCount = 0;
+
         async function loadData() {
             projects = await fetch('/api/projects').then(r => r.json());
             trucks = await fetch('/api/trucks').then(r => r.json());
             mixes = await fetch('/api/mixes').then(r => r.json());
-            
-            // 填充下拉選單
+
             const projectOptions = projects.map(p => `<option value="${p.code}">${p.name} (${p.code})</option>`).join('');
-            document.getElementById('dispatch-project').innerHTML = '<option value="">請選擇</option>' + projectOptions;
+            document.getElementById('summary-project').innerHTML = '<option value="">請選擇</option>' + projectOptions;
             document.getElementById('query-project').innerHTML = '<option value="">全部</option>' + projectOptions;
-            
-            // 更新計數
+
             document.getElementById('project-count').textContent = projects.length;
             document.getElementById('truck-count').textContent = trucks.length;
             document.getElementById('mix-count').textContent = mixes.length;
-            
-            // 列出資料
-            document.getElementById('project-list').innerHTML = projects.map(p => 
+
+            document.getElementById('project-list').innerHTML = projects.map(p =>
                 `<div style="padding:8px; border-bottom:1px solid #eee;">${p.code} - ${p.name}</div>`
             ).join('');
-            document.getElementById('truck-list').innerHTML = trucks.map(t => 
+            document.getElementById('truck-list').innerHTML = trucks.map(t =>
                 `<div style="padding:8px; border-bottom:1px solid #eee;">${t.code} - ${t.plate_no} (${t.driver_name || '-'})</div>`
             ).join('');
-            document.getElementById('mix-list').innerHTML = mixes.map(m => 
+            document.getElementById('mix-list').innerHTML = mixes.map(m =>
                 `<div style="padding:8px; border-bottom:1px solid #eee;">${m.code} - ${m.psi}psi</div>`
             ).join('');
-            
-            // 載入今日統計
+
+            renderTripSummary();
             loadTodayStats();
         }
-        
+
         async function loadTodayStats() {
             try {
                 const data = await fetch(`/api/reports/daily?date_str=${today}`).then(r => r.json());
@@ -1146,170 +1424,102 @@ def get_main_page_html():
                 console.log('No data for today');
             }
         }
-        
-        loadData();
-        for(let i=0; i<3; i++) addRow();
-        
-        function showTab(name) {
+
+        function showTab(evt, name) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            event.target.classList.add('active');
+            evt.target.classList.add('active');
             document.querySelectorAll('[id^="tab-"]').forEach(el => el.style.display = 'none');
             document.getElementById('tab-' + name).style.display = 'block';
-            document.getElementById('result-area').style.display = 'none';
         }
-        
-        function addRow() {
-            const tbody = document.getElementById('dispatch-body');
-            const n = tbody.children.length + 1;
-            const psi = document.getElementById('default-psi').value;
-            
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${n}</td>
-                <td><input class="dispatch-input item-truck" placeholder="車號或司機"></td>
-                <td><input class="dispatch-input item-load" type="number" step="0.5" placeholder="8"></td>
-                <td><input class="dispatch-input item-psi" value="${psi}"></td>
-                <td><input class="dispatch-input item-distance" type="number" step="0.1" placeholder="預設"></td>
-                <td><button class="btn btn-danger" onclick="this.closest('tr').remove()" style="padding:5px 10px;">✕</button></td>
-            `;
-            tbody.appendChild(tr);
+
+        function getSelectedProject() {
+            const code = document.getElementById('summary-project').value;
+            return projects.find(p => p.code === code);
         }
-        
-        function addRows(n) { for(let i=0; i<n; i++) addRow(); }
-        
-        function collectItems() {
-            const rows = document.querySelectorAll('#dispatch-body tr');
-            const items = [];
-            rows.forEach(tr => {
-                const truck = tr.querySelector('.item-truck').value.trim();
-                const load = tr.querySelector('.item-load').value;
-                if (truck && load) {
-                    items.push({
-                        truck,
-                        load: parseFloat(load),
-                        psi: tr.querySelector('.item-psi').value || null,
-                        distance: tr.querySelector('.item-distance').value ? parseFloat(tr.querySelector('.item-distance').value) : null
-                    });
-                }
-            });
-            return items;
+
+        function renderTripSummary() {
+            const totalM3 = parseFloat(document.getElementById('summary-total-m3').value || '0');
+            const project = getSelectedProject();
+            const distance = project ? project.default_distance_km || 0 : 0;
+            document.getElementById('trip-count').textContent = tripCount;
+            document.getElementById('summary-trips').textContent = tripCount;
+            document.getElementById('summary-total').textContent = totalM3.toFixed(1);
+            document.getElementById('summary-distance').textContent = (distance * tripCount).toFixed(1);
         }
-        
-        async function previewDispatch() {
-            const date = document.getElementById('dispatch-date').value;
-            const project = document.getElementById('dispatch-project').value;
-            const items = collectItems();
-            
-            if (!date || !project) { alert('請選擇日期和工程'); return; }
-            if (!items.length) { alert('請輸入車次資料'); return; }
-            
-            currentBatch = { date, project, items };
-            
-            const res = await fetch('/api/dispatch/preview', {
+
+        function updateTripCount(delta) {
+            tripCount = Math.max(0, tripCount + delta);
+            renderTripSummary();
+        }
+
+        function resetSummaryForm() {
+            document.getElementById('summary-total-m3').value = 0;
+            tripCount = 0;
+            renderTripSummary();
+        }
+
+        async function saveDailySummary() {
+            const date = document.getElementById('summary-date').value;
+            const project = document.getElementById('summary-project').value;
+            const psi = document.getElementById('summary-psi').value;
+            const total_m3 = parseFloat(document.getElementById('summary-total-m3').value || '0');
+
+            if (!date || !project) { alert('請選擇日期與工程'); return; }
+            if (total_m3 <= 0) { alert('請輸入總出貨量'); return; }
+
+            const res = await fetch('/api/daily-summaries', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(currentBatch)
+                body: JSON.stringify({ date, project, psi: psi ? parseInt(psi) : null, total_m3, trips: tripCount })
             });
-            const data = await res.json();
-            showResults(data);
-        }
-        
-        function showResults(data) {
-            const okCount = data.filter(d => d.status === 'OK').length;
-            const errCount = data.length - okCount;
-            const totalRevenue = data.filter(d => d.status === 'OK').reduce((s, d) => s + d.total_revenue, 0);
-            const totalProfit = data.filter(d => d.status === 'OK').reduce((s, d) => s + d.gross_profit, 0);
-            
-            document.getElementById('result-summary').innerHTML = `
-                <p>共 ${data.length} 筆：<span class="status-ok">✓ ${okCount} 成功</span>
-                ${errCount ? `<span class="status-error"> ✕ ${errCount} 錯誤</span>` : ''}
-                | 預估收入: $${totalRevenue.toLocaleString()} | 預估毛利: <span class="${totalProfit >= 0 ? 'profit-positive' : 'profit-negative'}">$${totalProfit.toLocaleString()}</span></p>
-            `;
-            
-            document.getElementById('result-thead').innerHTML = `
-                <tr><th>#</th><th>狀態</th><th>工程</th><th>車號</th><th>司機</th><th>載量</th><th>收入</th><th>成本</th><th>毛利</th><th>錯誤</th></tr>
-            `;
-            
-            document.getElementById('result-tbody').innerHTML = data.map((d, i) => `
-                <tr class="${d.status === 'ERROR' ? 'status-error' : ''}">
-                    <td>${i+1}</td>
-                    <td class="${d.status === 'OK' ? 'status-ok' : ''}">${d.status}</td>
-                    <td>${d.project_name || '-'}</td>
-                    <td>${d.truck_plate || '-'}</td>
-                    <td>${d.driver_name || '-'}</td>
-                    <td>${d.load_m3} m³</td>
-                    <td>$${(d.total_revenue || 0).toLocaleString()}</td>
-                    <td>$${(d.total_cost || 0).toLocaleString()}</td>
-                    <td class="${(d.gross_profit || 0) >= 0 ? 'profit-positive' : 'profit-negative'}">$${(d.gross_profit || 0).toLocaleString()}</td>
-                    <td>${d.error || ''}</td>
-                </tr>
-            `).join('');
-            
-            document.getElementById('result-area').style.display = 'block';
-        }
-        
-        async function commitDispatch() {
-            if (!currentBatch) return;
-            if (!confirm(`確定寫入 ${currentBatch.items.length} 筆資料？`)) return;
-            
-            const res = await fetch('/api/dispatch/commit', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(currentBatch)
-            });
-            const data = await res.json();
-            
-            if (data.success) {
-                alert(`✅ 成功寫入 ${data.inserted} 筆！\\n編號：${data.dispatch_nos.join(', ')}`);
-                document.getElementById('dispatch-body').innerHTML = '';
-                for(let i=0; i<3; i++) addRow();
-                document.getElementById('result-area').style.display = 'none';
+
+            if (res.ok) {
+                alert('✅ 已儲存');
+                resetSummaryForm();
                 loadTodayStats();
+                queryRecords();
             } else {
-                alert(`⚠️ 部分失敗：${data.inserted} 筆成功\\n\\n${data.errors.join('\\n')}`);
+                const err = await res.json();
+                alert(`❌ 儲存失敗：${err.detail || res.statusText}`);
             }
         }
-        
+
         async function queryRecords() {
             const start = document.getElementById('query-start').value;
             const end = document.getElementById('query-end').value;
             const project = document.getElementById('query-project').value;
-            
-            let url = `/api/dispatches?start_date=${start}&end_date=${end}`;
+
+            let url = `/api/daily-summaries?start_date=${start}&end_date=${end}`;
             if (project) url += `&project_code=${project}`;
-            
+
             const data = await fetch(url).then(r => r.json());
-            
-            const total = {revenue: 0, cost: 0, profit: 0, m3: 0};
+
+            const totals = { trips: 0, m3: 0 };
             data.forEach(d => {
-                total.revenue += d.total_revenue;
-                total.cost += d.total_cost;
-                total.profit += d.gross_profit;
-                total.m3 += d.load_m3;
+                totals.trips += d.trips;
+                totals.m3 += d.total_m3;
             });
-            
+
             document.getElementById('records-result').innerHTML = `
-                <p style="margin:15px 0;">共 ${data.length} 筆 | ${total.m3.toFixed(1)} m³ | 收入 $${total.revenue.toLocaleString()} | 毛利 <span class="${total.profit >= 0 ? 'profit-positive' : 'profit-negative'}">$${total.profit.toLocaleString()}</span></p>
+                <p style="margin:15px 0;">共 ${data.length} 筆 | 車次 ${totals.trips} 趟 | ${totals.m3.toFixed(1)} m³</p>
                 <table>
-                    <thead><tr><th>日期</th><th>編號</th><th>工程</th><th>車號</th><th>司機</th><th>載量</th><th>收入</th><th>成本</th><th>毛利</th></tr></thead>
+                    <thead><tr><th>日期</th><th>工程</th><th>強度</th><th>總出貨量(m³)</th><th>車次</th></tr></thead>
                     <tbody>
                         ${data.map(d => `
                             <tr>
                                 <td>${d.date}</td>
-                                <td>${d.dispatch_no}</td>
                                 <td>${d.project_name}</td>
-                                <td>${d.truck_plate}</td>
-                                <td>${d.driver_name || '-'}</td>
-                                <td>${d.load_m3} m³</td>
-                                <td>$${d.total_revenue.toLocaleString()}</td>
-                                <td>$${d.total_cost.toLocaleString()}</td>
-                                <td class="${d.gross_profit >= 0 ? 'profit-positive' : 'profit-negative'}">$${d.gross_profit.toLocaleString()}</td>
+                                <td>${d.psi || '-'}</td>
+                                <td>${d.total_m3.toFixed(1)}</td>
+                                <td>${d.trips}</td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
             `;
         }
+
+        loadData();
     </script>
 </body>
 </html>

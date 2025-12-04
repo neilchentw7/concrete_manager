@@ -291,7 +291,7 @@
             document.getElementById('price-project').innerHTML = projectsData.filter(p=>p.is_active).map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
         }
         function renderProjects(data) {
-            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button></td></tr>`).join('');
+            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button><button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">刪除</button></td></tr>`).join('');
         }
         function filterProjects() { const k=document.getElementById('project-search').value.toLowerCase(); renderProjects(projectsData.filter(p=>p.code.toLowerCase().includes(k)||p.name.toLowerCase().includes(k))); }
         function openProjectModal(p=null) {
@@ -309,6 +309,11 @@
             document.getElementById('project-modal').classList.add('show');
         }
         async function editProject(id) { const res=await fetch(`${API}/api/projects/${id}`); openProjectModal(await res.json()); }
+        async function deleteProject(id) {
+            if(!confirm('確認刪除此工程？')) return;
+            const res=await fetch(`${API}/api/projects/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadProjects();}else{showToast('刪除失敗','error');}
+        }
         async function saveProject() {
             const id=document.getElementById('project-id').value;
             const data={code:document.getElementById('project-code').value,name:document.getElementById('project-name').value,address:document.getElementById('project-address').value,contact_name:document.getElementById('project-contact-name').value,contact_phone:document.getElementById('project-contact-phone').value,default_distance_km:parseFloat(document.getElementById('project-distance').value),subsidy_threshold_m3:parseFloat(document.getElementById('project-subsidy-threshold').value),subsidy_amount:parseFloat(document.getElementById('project-subsidy-amount').value)};
@@ -319,7 +324,7 @@
         
         // 車輛
         async function loadTrucks() { const res=await fetch(`${API}/api/trucks?active_only=false`); trucksData=await res.json(); renderTrucks(trucksData); }
-        function renderTrucks(data) { document.getElementById('trucks-table').innerHTML = data.map(t=>`<tr><td><strong>${t.code}</strong></td><td>${t.plate_no}</td><td>${t.driver_name||'-'}</td><td>${t.driver_phone||'-'}</td><td class="num">${t.default_load_m3} m³</td><td class="num">${t.fuel_l_per_km}</td><td class="num">$${t.driver_pay_per_trip}</td><td><span class="badge ${t.is_active?'badge-success':'badge-danger'}">${t.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editTruck(${t.id})">編輯</button></td></tr>`).join(''); }
+        function renderTrucks(data) { document.getElementById('trucks-table').innerHTML = data.map(t=>`<tr><td><strong>${t.code}</strong></td><td>${t.plate_no}</td><td>${t.driver_name||'-'}</td><td>${t.driver_phone||'-'}</td><td class="num">${t.default_load_m3} m³</td><td class="num">${t.fuel_l_per_km}</td><td class="num">$${t.driver_pay_per_trip}</td><td><span class="badge ${t.is_active?'badge-success':'badge-danger'}">${t.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editTruck(${t.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteTruck(${t.id})">刪除</button></td></tr>`).join(''); }
         function filterTrucks() { const k=document.getElementById('truck-search').value.toLowerCase(); renderTrucks(trucksData.filter(t=>t.plate_no.toLowerCase().includes(k)||(t.driver_name&&t.driver_name.toLowerCase().includes(k)))); }
         function openTruckModal(t=null) {
             document.getElementById('truck-modal-title').textContent = t?'編輯車輛':'新增車輛';
@@ -341,6 +346,11 @@
             const res=await fetch(id?`${API}/api/trucks/${id}`:`${API}/api/trucks`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
             if(res.ok){showToast(id?'已更新':'已新增');closeModal('truck-modal');loadTrucks();}else{showToast((await res.json()).detail||'失敗','error');}
         }
+        async function deleteTruck(id) {
+            if(!confirm('確認刪除此車輛？')) return;
+            const res=await fetch(`${API}/api/trucks/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadTrucks();}else{showToast('刪除失敗','error');}
+        }
         
         // 材料單價
         async function loadMaterials() {
@@ -349,7 +359,7 @@
             renderMaterials(materialsData);
             document.getElementById('mix-material-price').innerHTML = '<option value="">-- 不使用 --</option>' + materialsData.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${m.price_id} - ${m.name||''}</option>`).join('');
         }
-        function renderMaterials(data) { document.getElementById('materials-table').innerHTML = data.map(m=>`<tr><td><strong>${m.price_id}</strong></td><td>${m.name||'-'}</td><td class="num">${m.sand_price.toFixed(4)}</td><td class="num">${m.stone_price.toFixed(4)}</td><td class="num">${m.cement_price.toFixed(4)}</td><td class="num">${m.slag_price.toFixed(4)}</td><td class="num">${m.flyash_price.toFixed(4)}</td><td class="num">${m.admixture_price.toFixed(4)}</td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMaterial(${m.id})">編輯</button><button class="btn btn-sm btn-warning" onclick="recalcMixes(${m.id})">重算</button></td></tr>`).join(''); }
+        function renderMaterials(data) { document.getElementById('materials-table').innerHTML = data.map(m=>`<tr><td><strong>${m.price_id}</strong></td><td>${m.name||'-'}</td><td class="num">${m.sand_price.toFixed(4)}</td><td class="num">${m.stone_price.toFixed(4)}</td><td class="num">${m.cement_price.toFixed(4)}</td><td class="num">${m.slag_price.toFixed(4)}</td><td class="num">${m.flyash_price.toFixed(4)}</td><td class="num">${m.admixture_price.toFixed(4)}</td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMaterial(${m.id})">編輯</button><button class="btn btn-sm btn-warning" onclick="recalcMixes(${m.id})">重算</button><button class="btn btn-sm btn-danger" onclick="deleteMaterial(${m.id})">刪除</button></td></tr>`).join(''); }
         function openMaterialModal(m=null) {
             document.getElementById('material-modal-title').textContent = m?'編輯材料單價':'新增材料單價';
             document.getElementById('material-id').value = m?.id||'';
@@ -372,6 +382,11 @@
             if(res.ok){showToast(id?'已更新':'已新增');closeModal('material-modal');loadMaterials();}else{showToast((await res.json()).detail||'失敗','error');}
         }
         async function recalcMixes(mpId) { if(!confirm('確定要重算配比成本?'))return; const res=await fetch(`${API}/api/material-prices/${mpId}/recalc-mixes`,{method:'POST'}); const r=await res.json(); showToast(`已更新 ${r.updated} 個配比`); loadMixes(); }
+        async function deleteMaterial(id) {
+            if(!confirm('確認刪除此材料單價？')) return;
+            const res=await fetch(`${API}/api/material-prices/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadMaterials();}else{showToast('刪除失敗','error');}
+        }
         
         // 配比
         async function loadMixes() {
@@ -380,7 +395,7 @@
             renderMixes(mixesData);
             document.getElementById('price-mix').innerHTML = mixesData.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${m.psi} PSI - ${m.name||m.code}</option>`).join('');
         }
-        function renderMixes(data) { document.getElementById('mixes-table').innerHTML = data.map(m=>`<tr><td><strong>${m.code}</strong></td><td>${m.psi}</td><td>${m.name||'-'}</td><td class="num">${m.sand1_kg}</td><td class="num">${m.sand2_kg}</td><td class="num">${m.stone1_kg}</td><td class="num">${m.stone2_kg}</td><td class="num">${m.cement_kg}</td><td class="num">${m.slag_kg}</td><td class="num">${m.flyash_kg}</td><td class="num">${m.admixture_kg}</td><td class="num"><strong>$${m.material_cost_per_m3.toFixed(2)}</strong></td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMix(${m.id})">編輯</button></td></tr>`).join(''); }
+        function renderMixes(data) { document.getElementById('mixes-table').innerHTML = data.map(m=>`<tr><td><strong>${m.code}</strong></td><td>${m.psi}</td><td>${m.name||'-'}</td><td class="num">${m.sand1_kg}</td><td class="num">${m.sand2_kg}</td><td class="num">${m.stone1_kg}</td><td class="num">${m.stone2_kg}</td><td class="num">${m.cement_kg}</td><td class="num">${m.slag_kg}</td><td class="num">${m.flyash_kg}</td><td class="num">${m.admixture_kg}</td><td class="num"><strong>$${m.material_cost_per_m3.toFixed(2)}</strong></td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMix(${m.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteMix(${m.id})">刪除</button></td></tr>`).join(''); }
         function filterMixes() { const psi=document.getElementById('mix-psi-filter').value; renderMixes(psi?mixesData.filter(m=>m.psi==psi):mixesData); }
         function openMixModal(m=null) {
             document.getElementById('mix-modal-title').textContent = m?'編輯配比':'新增配比';
@@ -425,10 +440,15 @@
             const res=await fetch(id?`${API}/api/mixes/${id}`:`${API}/api/mixes`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
             if(res.ok){const r=await res.json();showToast(id?`已更新，成本: $${r.material_cost_per_m3?.toFixed(2)||'?'}/m³`:'已新增');closeModal('mix-modal');loadMixes();}else{showToast((await res.json()).detail||'失敗','error');}
         }
+        async function deleteMix(id) {
+            if(!confirm('確認刪除此配比？')) return;
+            const res=await fetch(`${API}/api/mixes/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadMixes();}else{showToast('刪除失敗','error');}
+        }
         
         // 單價
         async function loadPrices() { const pid=document.getElementById('price-project-filter').value; const res=await fetch(`${API}/api/prices${pid?`?project_id=${pid}`:''}`); pricesData=await res.json(); renderPrices(pricesData); }
-        function renderPrices(data) { document.getElementById('prices-table').innerHTML = data.map(p=>`<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button></td></tr>`).join(''); }
+        function renderPrices(data) { document.getElementById('prices-table').innerHTML = data.map(p=>`<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deletePrice(${p.id})">刪除</button></td></tr>`).join(''); }
         function openPriceModal(p=null) {
             document.getElementById('price-modal-title').textContent = p?'編輯單價':'新增單價';
             document.getElementById('price-id').value = p?.id||'';
@@ -443,6 +463,11 @@
             const data={project_id:parseInt(document.getElementById('price-project').value),mix_id:parseInt(document.getElementById('price-mix').value),price_per_m3:parseFloat(document.getElementById('price-amount').value),effective_from:document.getElementById('price-effective-from').value||null};
             const res=await fetch(`${API}/api/prices`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
             if(res.ok){showToast('已儲存');closeModal('price-modal');loadPrices();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        async function deletePrice(id) {
+            if(!confirm('確認刪除此單價？')) return;
+            const res=await fetch(`${API}/api/prices/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadPrices();}else{showToast('刪除失敗','error');}
         }
         
         // 設定
