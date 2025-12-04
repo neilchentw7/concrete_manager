@@ -100,7 +100,10 @@ class TruckResponse(BaseModel):
     code: str
     plate_no: str
     driver_name: Optional[str]
+    driver_phone: Optional[str]
     default_load_m3: float
+    fuel_l_per_km: float
+    driver_pay_per_trip: float
     is_active: bool
     
     class Config:
@@ -151,6 +154,16 @@ class PriceCreate(BaseModel):
     price_per_m3: float
     effective_from: Optional[date] = None
     effective_to: Optional[date] = None
+
+
+# --- 系統設定 ---
+class SettingResponse(BaseModel):
+    key: str
+    value: str
+
+
+class SettingUpdate(BaseModel):
+    value: str
 
 # --- 出車 ---
 class DispatchItem(BaseModel):
@@ -273,9 +286,21 @@ def update_project(project_id: int, data: ProjectCreate, db: Session = Depends(g
     
     for key, value in data.model_dump().items():
         setattr(project, key, value)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/projects/{project_id}")
+def delete_project(project_id: int, db: Session = Depends(get_db)):
+    """刪除工程"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(404, "工程不存在")
+
+    db.delete(project)
+    db.commit()
+    return {"status": "deleted"}
 
 
 # ============================================================
@@ -331,9 +356,21 @@ def update_truck(truck_id: int, data: TruckCreate, db: Session = Depends(get_db)
     for key, value in data.model_dump().items():
         if key != 'code':  # 不更新代號
             setattr(truck, key, value)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/trucks/{truck_id}")
+def delete_truck(truck_id: int, db: Session = Depends(get_db)):
+    """刪除車輛"""
+    truck = db.query(Truck).filter(Truck.id == truck_id).first()
+    if not truck:
+        raise HTTPException(404, "車輛不存在")
+
+    db.delete(truck)
+    db.commit()
+    return {"status": "deleted"}
 
 
 # ============================================================
@@ -390,9 +427,21 @@ def update_material_price(mp_id: int, data: MaterialPriceCreate, db: Session = D
     for key, value in data.model_dump().items():
         if key != 'price_id':  # 不更新代碼
             setattr(mp, key, value)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/material-prices/{mp_id}")
+def delete_material_price(mp_id: int, db: Session = Depends(get_db)):
+    """刪除材料單價"""
+    mp = db.query(MaterialPrice).filter(MaterialPrice.id == mp_id).first()
+    if not mp:
+        raise HTTPException(404, "材料單價不存在")
+
+    db.delete(mp)
+    db.commit()
+    return {"status": "deleted"}
 
 @app.post("/api/material-prices/{mp_id}/recalc-mixes")
 def recalc_mixes_cost(mp_id: int, db: Session = Depends(get_db)):
@@ -491,9 +540,21 @@ def update_mix(mix_id: int, data: MixCreate, db: Session = Depends(get_db)):
         mp = db.query(MaterialPrice).filter(MaterialPrice.id == mix.material_price_id).first()
         if mp:
             mix.material_cost_per_m3 = mix.calc_material_cost(mp)
-    
+
     db.commit()
     return {"status": "ok", "material_cost_per_m3": mix.material_cost_per_m3}
+
+
+@app.delete("/api/mixes/{mix_id}")
+def delete_mix(mix_id: int, db: Session = Depends(get_db)):
+    """刪除配比"""
+    mix = db.query(Mix).filter(Mix.id == mix_id).first()
+    if not mix:
+        raise HTTPException(404, "配比不存在")
+
+    db.delete(mix)
+    db.commit()
+    return {"status": "deleted"}
 
 
 # ============================================================
@@ -542,9 +603,21 @@ def create_price(data: PriceCreate, db: Session = Depends(get_db)):
     else:
         price = ProjectPrice(**data.model_dump())
         db.add(price)
-    
+
     db.commit()
     return {"status": "ok"}
+
+
+@app.delete("/api/prices/{price_id}")
+def delete_price(price_id: int, db: Session = Depends(get_db)):
+    """刪除工程單價"""
+    price = db.query(ProjectPrice).filter(ProjectPrice.id == price_id).first()
+    if not price:
+        raise HTTPException(404, "單價不存在")
+
+    db.delete(price)
+    db.commit()
+    return {"status": "deleted"}
 
 
 # ============================================================
@@ -801,24 +874,25 @@ def report_project(
 # 設定 API
 # ============================================================
 
-@app.get("/api/settings")
+@app.get("/api/settings", response_model=List[SettingResponse])
 def list_settings(db: Session = Depends(get_db)):
     """列出所有設定"""
     settings = db.query(Setting).all()
-    return {s.key: s.value for s in settings}
+    return [SettingResponse(key=s.key, value=s.value) for s in settings]
+
 
 @app.put("/api/settings/{key}")
-def update_setting(key: str, value: str, db: Session = Depends(get_db)):
+def update_setting(key: str, data: SettingUpdate, db: Session = Depends(get_db)):
     """更新設定"""
     setting = db.query(Setting).filter(Setting.key == key).first()
     if setting:
-        setting.value = value
+        setting.value = data.value
     else:
-        setting = Setting(key=key, value=value)
+        setting = Setting(key=key, value=data.value)
         db.add(setting)
-    
+
     db.commit()
-    return {"status": "ok"}
+    return {"status": "ok", "key": key, "value": setting.value}
 
 
 # ============================================================
