@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
+from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 import io
 
@@ -298,9 +299,23 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(404, "工程不存在")
 
-    db.delete(project)
-    db.commit()
-    return {"status": "deleted"}
+    has_dispatch = db.query(Dispatch).filter(Dispatch.project_id == project_id).first()
+    has_price = db.query(ProjectPrice).filter(ProjectPrice.project_id == project_id).first()
+
+    if has_dispatch or has_price:
+        project.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有出車或單價紀錄，改為停用"}
+
+    try:
+        db.delete(project)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除工程"}
+    except SQLAlchemyError:
+        db.rollback()
+        project.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -368,9 +383,22 @@ def delete_truck(truck_id: int, db: Session = Depends(get_db)):
     if not truck:
         raise HTTPException(404, "車輛不存在")
 
-    db.delete(truck)
-    db.commit()
-    return {"status": "deleted"}
+    has_dispatch = db.query(Dispatch).filter(Dispatch.truck_id == truck_id).first()
+
+    if has_dispatch:
+        truck.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有出車紀錄，改為停用"}
+
+    try:
+        db.delete(truck)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除車輛"}
+    except SQLAlchemyError:
+        db.rollback()
+        truck.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -439,9 +467,22 @@ def delete_material_price(mp_id: int, db: Session = Depends(get_db)):
     if not mp:
         raise HTTPException(404, "材料單價不存在")
 
-    db.delete(mp)
-    db.commit()
-    return {"status": "deleted"}
+    has_mix = db.query(Mix).filter(Mix.material_price_id == mp_id).first()
+
+    if has_mix:
+        mp.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有配比使用，改為停用"}
+
+    try:
+        db.delete(mp)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除材料單價"}
+    except SQLAlchemyError:
+        db.rollback()
+        mp.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 @app.post("/api/material-prices/{mp_id}/recalc-mixes")
 def recalc_mixes_cost(mp_id: int, db: Session = Depends(get_db)):
@@ -552,9 +593,24 @@ def delete_mix(mix_id: int, db: Session = Depends(get_db)):
     if not mix:
         raise HTTPException(404, "配比不存在")
 
-    db.delete(mix)
-    db.commit()
-    return {"status": "deleted"}
+    has_dispatch = db.query(Dispatch).filter(Dispatch.mix_id == mix_id).first()
+    has_price = db.query(ProjectPrice).filter(ProjectPrice.mix_id == mix_id).first()
+    referenced_by_project = db.query(Project).filter(Project.default_mix_id == mix_id).first()
+
+    if has_dispatch or has_price or referenced_by_project:
+        mix.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "已有出車、單價或工程引用，改為停用"}
+
+    try:
+        db.delete(mix)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除配比"}
+    except SQLAlchemyError:
+        db.rollback()
+        mix.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -615,9 +671,15 @@ def delete_price(price_id: int, db: Session = Depends(get_db)):
     if not price:
         raise HTTPException(404, "單價不存在")
 
-    db.delete(price)
-    db.commit()
-    return {"status": "deleted"}
+    try:
+        db.delete(price)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除工程單價"}
+    except SQLAlchemyError:
+        db.rollback()
+        price.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -1044,7 +1106,6 @@ def get_main_page_html():
             <a href="/docs" target="_blank" style="color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 20px; margin-left: 10px;">📖 API 文件</a>
         </p>
         
-        <!-- 統計卡片 -->
         <div class="grid" id="stats-grid" style="margin-bottom: 20px;">
             <div class="stat-card">
                 <h3>今日出車</h3>
@@ -1064,14 +1125,12 @@ def get_main_page_html():
             </div>
         </div>
         
-        <!-- 主功能區 -->
         <div class="tabs">
             <button class="tab active" onclick="showTab('dispatch')">📥 快速出車</button>
             <button class="tab" onclick="showTab('records')">📋 出車紀錄</button>
             <button class="tab" onclick="showTab('master')">⚙️ 基礎資料</button>
         </div>
         
-        <!-- 快速出車 -->
         <div id="tab-dispatch" class="card">
             <h2>📥 快速出車登錄</h2>
             <p style="color:#666; margin-bottom:20px;">選擇日期和工程後，只需輸入每車的「車號/司機」和「載量」</p>
@@ -1113,7 +1172,6 @@ def get_main_page_html():
             </div>
         </div>
         
-        <!-- 預覽結果 -->
         <div id="result-area" class="card">
             <h2>📊 預覽結果</h2>
             <div id="result-summary"></div>
@@ -1124,7 +1182,6 @@ def get_main_page_html():
             <button class="btn btn-success" onclick="commitDispatch()" style="margin-top:20px;">✅ 確認寫入</button>
         </div>
         
-        <!-- 出車紀錄 -->
         <div id="tab-records" class="card" style="display:none;">
             <h2>📋 出車紀錄查詢</h2>
             <div class="form-row">
@@ -1147,7 +1204,6 @@ def get_main_page_html():
             <div id="records-result"></div>
         </div>
         
-        <!-- 基礎資料 -->
         <div id="tab-master" class="card" style="display:none;">
             <h2>⚙️ 基礎資料管理</h2>
             <p>API 文件：<a href="/docs" target="_blank">/docs</a></p>
@@ -1334,13 +1390,13 @@ def get_main_page_html():
             const data = await res.json();
             
             if (data.success) {
-                alert(`✅ 成功寫入 ${data.inserted} 筆！\\n編號：${data.dispatch_nos.join(', ')}`);
+                alert(`✅ 成功寫入 ${data.inserted} 筆！\n編號：${data.dispatch_nos.join(', ')}`);
                 document.getElementById('dispatch-body').innerHTML = '';
                 for(let i=0; i<3; i++) addRow();
                 document.getElementById('result-area').style.display = 'none';
                 loadTodayStats();
             } else {
-                alert(`⚠️ 部分失敗：${data.inserted} 筆成功\\n\\n${data.errors.join('\\n')}`);
+                alert(`⚠️ 部分失敗：${data.inserted} 筆成功\n\n${data.errors.join('\n')}`);
             }
         }
         
