@@ -467,7 +467,7 @@
         async function deletePrice(id) {
             if(!confirm('確認刪除此單價？')) return;
             const res=await fetch(`${API}/api/prices/${id}`,{method:'DELETE'});
-            if(res.ok){showToast('已刪除');loadPrices();}else{showToast('刪除失敗','error');}
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadPrices();}else{showToast('刪除失敗','error');}
         }
         
         // 設定

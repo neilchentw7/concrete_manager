@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
+from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 import io
 
@@ -306,9 +307,15 @@ def delete_project(project_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "disabled", "message": "已有出車或單價紀錄，改為停用"}
 
-    db.delete(project)
-    db.commit()
-    return {"status": "deleted", "message": "已刪除工程"}
+    try:
+        db.delete(project)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除工程"}
+    except SQLAlchemyError:
+        db.rollback()
+        project.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -383,9 +390,15 @@ def delete_truck(truck_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "disabled", "message": "已有出車紀錄，改為停用"}
 
-    db.delete(truck)
-    db.commit()
-    return {"status": "deleted", "message": "已刪除車輛"}
+    try:
+        db.delete(truck)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除車輛"}
+    except SQLAlchemyError:
+        db.rollback()
+        truck.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -461,9 +474,15 @@ def delete_material_price(mp_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "disabled", "message": "已有配比使用，改為停用"}
 
-    db.delete(mp)
-    db.commit()
-    return {"status": "deleted", "message": "已刪除材料單價"}
+    try:
+        db.delete(mp)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除材料單價"}
+    except SQLAlchemyError:
+        db.rollback()
+        mp.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 @app.post("/api/material-prices/{mp_id}/recalc-mixes")
 def recalc_mixes_cost(mp_id: int, db: Session = Depends(get_db)):
@@ -583,9 +602,15 @@ def delete_mix(mix_id: int, db: Session = Depends(get_db)):
         db.commit()
         return {"status": "disabled", "message": "已有出車、單價或工程引用，改為停用"}
 
-    db.delete(mix)
-    db.commit()
-    return {"status": "deleted", "message": "已刪除配比"}
+    try:
+        db.delete(mix)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除配比"}
+    except SQLAlchemyError:
+        db.rollback()
+        mix.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
@@ -646,9 +671,15 @@ def delete_price(price_id: int, db: Session = Depends(get_db)):
     if not price:
         raise HTTPException(404, "單價不存在")
 
-    db.delete(price)
-    db.commit()
-    return {"status": "deleted"}
+    try:
+        db.delete(price)
+        db.commit()
+        return {"status": "deleted", "message": "已刪除工程單價"}
+    except SQLAlchemyError:
+        db.rollback()
+        price.is_active = False
+        db.commit()
+        return {"status": "disabled", "message": "刪除失敗，已改為停用"}
 
 
 # ============================================================
