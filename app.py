@@ -100,7 +100,10 @@ class TruckResponse(BaseModel):
     code: str
     plate_no: str
     driver_name: Optional[str]
+    driver_phone: Optional[str]
     default_load_m3: float
+    fuel_l_per_km: float
+    driver_pay_per_trip: float
     is_active: bool
     
     class Config:
