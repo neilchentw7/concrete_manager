@@ -120,7 +120,7 @@
                 <div class="page-header"><h2>工程單價</h2><button class="btn btn-primary" onclick="openPriceModal()">➕ 新增單價</button></div>
                 <div class="card">
                     <div class="search-box"><select id="price-project-filter" onchange="loadPrices()"><option value="">-- 全部工程 --</option></select></div>
-                    <div class="table-wrapper"><table><thead><tr><th>工程</th><th>配比</th><th class="num">單價/m³</th><th>生效日</th><th>狀態</th><th>操作</th></tr></thead><tbody id="prices-table"></tbody></table></div>
+                    <div class="table-wrapper"><table><thead><tr><th>工程</th><th>配比</th><th>載運區間</th><th class="num">單價/m³</th><th>生效日</th><th>狀態</th><th>操作</th></tr></thead><tbody id="prices-table"></tbody></table></div>
                 </div>
             </div>
             
@@ -132,9 +132,19 @@
                         <div class="form-group"><label>預設強度 (PSI)</label><input type="number" id="setting-default_psi"></div>
                         <div class="form-group"><label>預設載量 (m³)</label><input type="number" id="setting-default_load_m3" step="0.1"></div>
                         <div class="form-group"><label>司機每日薪資 (元)</label><input type="number" id="setting-driver_daily_salary" step="1"></div>
-                        <div class="form-group"><label>出勤司機人數</label><input type="number" id="setting-driver_count" step="1"></div>
+                        <div class="form-group"><label>預設司機人數</label><input type="number" id="setting-driver_count" step="1"></div>
                     </div>
                     <div style="margin-top: 25px;"><button class="btn btn-success" onclick="saveSettings()">💾 儲存設定</button></div>
+                </div>
+                <div class="card" style="margin-top:20px;">
+                    <h3 style="margin-bottom:15px;">每日司機出勤</h3>
+                    <div class="form-grid">
+                        <div class="form-group"><label>日期</label><input type="date" id="attendance-date"></div>
+                        <div class="form-group"><label>出勤司機人數</label><input type="number" id="attendance-count" step="1" min="0"></div>
+                        <div class="form-group" style="grid-column:1/-1;"><label>備註</label><input type="text" id="attendance-note" placeholder="如：請假 2 人"></div>
+                    </div>
+                    <div style="margin:15px 0;"><button class="btn btn-primary" onclick="saveAttendance()">➕ 新增 / 更新</button></div>
+                    <div class="table-wrapper"><table><thead><tr><th>日期</th><th>出勤司機人數</th><th>備註</th><th>操作</th></tr></thead><tbody id="attendance-table"></tbody></table></div>
                 </div>
             </div>
         </main>
@@ -242,6 +252,8 @@
                 <div class="form-grid">
                     <div class="form-group"><label>工程 *</label><select id="price-project"></select></div>
                     <div class="form-group"><label>配比 *</label><select id="price-mix"></select></div>
+                    <div class="form-group"><label>載量下限 (m³)</label><input type="number" id="price-load-min" step="0.1" placeholder="不限"></div>
+                    <div class="form-group"><label>載量上限 (m³)</label><input type="number" id="price-load-max" step="0.1" placeholder="不限"></div>
                     <div class="form-group"><label>單價 (元/m³) *</label><input type="number" id="price-amount" step="0.01"></div>
                     <div class="form-group"><label>生效日期</label><input type="date" id="price-effective-from"></div>
                 </div>
@@ -256,12 +268,16 @@
         
         document.querySelectorAll('.sidebar-item').forEach(item => {
             item.addEventListener('click', () => {
-                document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
-                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-                item.classList.add('active');
-                document.getElementById('page-' + item.dataset.page).classList.add('active');
+                setActivePage(item.dataset.page);
             });
         });
+
+        function setActivePage(page){
+            document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+            document.querySelector(`.sidebar-item[data-page="${page}"]`)?.classList.add('active');
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('page-' + page)?.classList.add('active');
+        }
         
         function showToast(msg, type='success') {
             const t = document.createElement('div');
@@ -282,7 +298,7 @@
             document.getElementById('price-project').innerHTML = projectsData.filter(p=>p.is_active).map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
         }
         function renderProjects(data) {
-            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button><button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">刪除</button></td></tr>`).join('');
+            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm btn-primary" onclick="manageProjectPrice(${p.id})">單價</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button><button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">刪除</button></td></tr>`).join('');
         }
         function filterProjects() { const k=document.getElementById('project-search').value.toLowerCase(); renderProjects(projectsData.filter(p=>p.code.toLowerCase().includes(k)||p.name.toLowerCase().includes(k))); }
         function openProjectModal(p=null) {
@@ -441,21 +457,42 @@
         
         // 單價
         async function loadPrices() { const pid=document.getElementById('price-project-filter').value; const res=await fetch(`${API}/api/prices${pid?`?project_id=${pid}`:''}`); pricesData=await res.json(); renderPrices(pricesData); }
-        function renderPrices(data) { document.getElementById('prices-table').innerHTML = data.map(p=>`<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deletePrice(${p.id})">刪除</button></td></tr>`).join(''); }
+        function renderPrices(data) {
+            document.getElementById('prices-table').innerHTML = data.map(p=>{
+                const range = (p.load_min_m3||p.load_max_m3)?`${p.load_min_m3??'-'} ~ ${p.load_max_m3??'以上'}`:'不限';
+                return `<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td>${range}</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deletePrice(${p.id})">刪除</button></td></tr>`;
+            }).join('');
+        }
         function openPriceModal(p=null) {
             document.getElementById('price-modal-title').textContent = p?'編輯單價':'新增單價';
             document.getElementById('price-id').value = p?.id||'';
-            document.getElementById('price-project').value = p?.project_id||projectsData[0]?.id||'';
+            document.getElementById('price-project').value = p?.project_id||document.getElementById('price-project-filter').value||projectsData[0]?.id||'';
             document.getElementById('price-mix').value = p?.mix_id||mixesData[0]?.id||'';
+            document.getElementById('price-load-min').value = p?.load_min_m3??'';
+            document.getElementById('price-load-max').value = p?.load_max_m3??'';
             document.getElementById('price-amount').value = p?.price_per_m3||'';
             document.getElementById('price-effective-from').value = p?.effective_from||new Date().toISOString().split('T')[0];
             document.getElementById('price-modal').classList.add('show');
         }
         async function editPrice(id) { openPriceModal(pricesData.find(p=>p.id===id)); }
         async function savePrice() {
-            const data={project_id:parseInt(document.getElementById('price-project').value),mix_id:parseInt(document.getElementById('price-mix').value),price_per_m3:parseFloat(document.getElementById('price-amount').value),effective_from:document.getElementById('price-effective-from').value||null};
+            const minVal=document.getElementById('price-load-min').value, maxVal=document.getElementById('price-load-max').value;
+            const data={
+                project_id:parseInt(document.getElementById('price-project').value),
+                mix_id:parseInt(document.getElementById('price-mix').value),
+                load_min_m3:minVal===''?null:parseFloat(minVal),
+                load_max_m3:maxVal===''?null:parseFloat(maxVal),
+                price_per_m3:parseFloat(document.getElementById('price-amount').value),
+                effective_from:document.getElementById('price-effective-from').value||null
+            };
             const res=await fetch(`${API}/api/prices`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
             if(res.ok){showToast('已儲存');closeModal('price-modal');loadPrices();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        function manageProjectPrice(projectId){
+            setActivePage('prices');
+            document.getElementById('price-project-filter').value=projectId;
+            loadPrices();
+            openPriceModal({project_id:projectId});
         }
         async function deletePrice(id) {
             if(!confirm('確認刪除此單價？')) return;
@@ -466,9 +503,44 @@
         // 設定
         async function loadSettings() { const res=await fetch(`${API}/api/settings`); (await res.json()).forEach(s=>{const el=document.getElementById(`setting-${s.key}`);if(el)el.value=s.value;}); }
         async function saveSettings() { for(const k of['fuel_price','default_psi','default_load_m3','driver_daily_salary','driver_count'])await fetch(`${API}/api/settings/${k}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:document.getElementById(`setting-${k}`).value})}); showToast('設定已儲存'); }
-        
+
+        // 司機出勤
+        let attendanceData=[];
+        function resetAttendanceForm(){
+            document.getElementById('attendance-date').value=new Date().toISOString().split('T')[0];
+            document.getElementById('attendance-count').value='';
+            document.getElementById('attendance-note').value='';
+        }
+        async function loadAttendance(){
+            const res=await fetch(`${API}/api/driver-attendance`);
+            attendanceData=await res.json();
+            renderAttendance();
+            if(!document.getElementById('attendance-date').value)resetAttendanceForm();
+        }
+        function renderAttendance(){
+            const body=document.getElementById('attendance-table');
+            if(!attendanceData.length){body.innerHTML='<tr><td colspan="4" style="text-align:center;color:#777;">尚無出勤紀錄</td></tr>';return;}
+            body.innerHTML=attendanceData.map(a=>`<tr><td>${a.date}</td><td class="num">${a.driver_count}</td><td>${a.note||''}</td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editAttendance('${a.date}')">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteAttendance('${a.date}')">刪除</button></td></tr>`).join('');
+        }
+        async function saveAttendance(){
+            const payload={date:document.getElementById('attendance-date').value,driver_count:parseInt(document.getElementById('attendance-count').value||'0'),note:document.getElementById('attendance-note').value||null};
+            const res=await fetch(`${API}/api/driver-attendance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+            if(res.ok){showToast('出勤人數已更新');resetAttendanceForm();await loadAttendance();}else{showToast((await res.json()).detail||'儲存失敗','error');}
+        }
+        function editAttendance(date){
+            const rec=attendanceData.find(a=>a.date===date);if(!rec)return;
+            document.getElementById('attendance-date').value=rec.date;
+            document.getElementById('attendance-count').value=rec.driver_count;
+            document.getElementById('attendance-note').value=rec.note||'';
+        }
+        async function deleteAttendance(date){
+            if(!confirm('確認刪除此日期的出勤紀錄？'))return;
+            const res=await fetch(`${API}/api/driver-attendance/${date}`,{method:'DELETE'});
+            if(res.ok){showToast('已刪除');await loadAttendance();}else{showToast((await res.json()).detail||'刪除失敗','error');}
+        }
+
         // 初始化
-        (async()=>{await loadMaterials();await loadProjects();await loadTrucks();await loadMixes();await loadPrices();await loadSettings();})();
+        (async()=>{await loadMaterials();await loadProjects();await loadTrucks();await loadMixes();await loadPrices();await loadSettings();resetAttendanceForm();await loadAttendance();})();
     </script>
 </body>
 </html>
