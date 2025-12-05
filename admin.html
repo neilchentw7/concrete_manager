@@ -1,278 +1,470 @@
-diff --git a/admin.html b/admin.html
-index cfdeeddf7833792f5a6c567018c526d38743a850..ac8aa8baad783e453440a91b697fd855dfdf0919 100644
---- a/admin.html
-+++ b/admin.html
-@@ -93,51 +93,51 @@
-                     <div class="table-wrapper"><table><thead><tr><th>代號</th><th>名稱</th><th>預設距離</th><th>短載門檻</th><th>短載補貼</th><th>狀態</th><th>操作</th></tr></thead><tbody id="projects-table"></tbody></table></div>
-                 </div>
-             </div>
-             
-             <!-- 車輛管理 -->
-             <div id="page-trucks" class="page">
-                 <div class="page-header"><h2>車輛管理</h2><button class="btn btn-primary" onclick="openTruckModal()">➕ 新增車輛</button></div>
-                 <div class="card">
-                     <div class="search-box"><input type="text" id="truck-search" placeholder="搜尋車號或司機..." oninput="filterTrucks()"></div>
-                     <div class="table-wrapper"><table><thead><tr><th>代號</th><th>車牌</th><th>司機</th><th>電話</th><th>預設載量</th><th>油耗</th><th>每趟薪資</th><th>狀態</th><th>操作</th></tr></thead><tbody id="trucks-table"></tbody></table></div>
-                 </div>
-             </div>
-             
-             <!-- 材料單價 -->
-             <div id="page-materials" class="page">
-                 <div class="page-header"><h2>材料單價</h2><button class="btn btn-primary" onclick="openMaterialModal()">➕ 新增材料單價</button></div>
-                 <div class="card">
-                     <div class="table-wrapper"><table><thead><tr><th>代碼</th><th>名稱</th><th class="num">砂 $/kg</th><th class="num">石 $/kg</th><th class="num">水泥 $/kg</th><th class="num">爐石 $/kg</th><th class="num">飛灰 $/kg</th><th class="num">藥劑 $/kg</th><th>狀態</th><th>操作</th></tr></thead><tbody id="materials-table"></tbody></table></div>
-                 </div>
-             </div>
-             
-             <!-- 配比管理 -->
-             <div id="page-mixes" class="page">
-                 <div class="page-header"><h2>配比管理</h2><button class="btn btn-primary" onclick="openMixModal()">➕ 新增配比</button></div>
-                 <div class="card">
--                    <div class="search-box"><select id="mix-psi-filter" onchange="filterMixes()"><option value="">全部強度</option><option value="2000">2000 PSI</option><option value="3000">3000 PSI</option><option value="4000">4000 PSI</option></select></div>
-+                    <div class="search-box"><select id="mix-psi-filter" onchange="filterMixes()"><option value="">全部強度</option></select></div>
-                     <div class="table-wrapper"><table><thead><tr><th>代號</th><th>PSI</th><th>名稱</th><th class="num">砂1</th><th class="num">砂2</th><th class="num">石1</th><th class="num">石2</th><th class="num">水泥</th><th class="num">爐石</th><th class="num">飛灰</th><th class="num">藥劑</th><th class="num">成本/m³</th><th>狀態</th><th>操作</th></tr></thead><tbody id="mixes-table"></tbody></table></div>
-                 </div>
-             </div>
-             
-             <!-- 工程單價 -->
-             <div id="page-prices" class="page">
-                 <div class="page-header"><h2>工程單價</h2><button class="btn btn-primary" onclick="openPriceModal()">➕ 新增單價</button></div>
-                 <div class="card">
-                     <div class="search-box"><select id="price-project-filter" onchange="loadPrices()"><option value="">-- 全部工程 --</option></select></div>
-                     <div class="table-wrapper"><table><thead><tr><th>工程</th><th>配比</th><th class="num">單價/m³</th><th>生效日</th><th>狀態</th><th>操作</th></tr></thead><tbody id="prices-table"></tbody></table></div>
-                 </div>
-             </div>
-             
-             <!-- 系統設定 -->
-             <div id="page-settings" class="page">
-                 <div class="page-header"><h2>系統設定</h2></div>
-                 <div class="card">
-                     <div class="form-grid">
-                         <div class="form-group"><label>油價 (元/公升)</label><input type="number" id="setting-fuel_price" step="0.1"></div>
-                         <div class="form-group"><label>預設強度 (PSI)</label><input type="number" id="setting-default_psi"></div>
-                         <div class="form-group"><label>預設載量 (m³)</label><input type="number" id="setting-default_load_m3" step="0.1"></div>
-                     </div>
-                     <div style="margin-top: 25px;"><button class="btn btn-success" onclick="saveSettings()">💾 儲存設定</button></div>
-                 </div>
-             </div>
-@@ -269,188 +269,215 @@
-                 document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-                 item.classList.add('active');
-                 document.getElementById('page-' + item.dataset.page).classList.add('active');
-             });
-         });
-         
-         function showToast(msg, type='success') {
-             const t = document.createElement('div');
-             t.className = `toast toast-${type}`;
-             t.textContent = msg;
-             document.body.appendChild(t);
-             setTimeout(() => t.remove(), 3000);
-         }
-         
-         function closeModal(id) { document.getElementById(id).classList.remove('show'); }
-         
-         // 工程
-         async function loadProjects() {
-             const res = await fetch(`${API}/api/projects?active_only=false`);
-             projectsData = await res.json();
-             renderProjects(projectsData);
-             document.getElementById('price-project-filter').innerHTML = '<option value="">-- 全部 --</option>' + projectsData.filter(p=>p.is_active).map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
-             document.getElementById('price-project').innerHTML = projectsData.filter(p=>p.is_active).map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
-         }
-         function renderProjects(data) {
--            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button></td></tr>`).join('');
-+            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button><button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">刪除</button></td></tr>`).join('');
-         }
-         function filterProjects() { const k=document.getElementById('project-search').value.toLowerCase(); renderProjects(projectsData.filter(p=>p.code.toLowerCase().includes(k)||p.name.toLowerCase().includes(k))); }
-         function openProjectModal(p=null) {
-             document.getElementById('project-modal-title').textContent = p?'編輯工程':'新增工程';
-             document.getElementById('project-id').value = p?.id||'';
-             document.getElementById('project-code').value = p?.code||'';
-             document.getElementById('project-code').disabled = !!p;
-             document.getElementById('project-name').value = p?.name||'';
-             document.getElementById('project-address').value = p?.address||'';
-             document.getElementById('project-contact-name').value = p?.contact_name||'';
-             document.getElementById('project-contact-phone').value = p?.contact_phone||'';
-             document.getElementById('project-distance').value = p?.default_distance_km||10;
-             document.getElementById('project-subsidy-threshold').value = p?.subsidy_threshold_m3||6;
-             document.getElementById('project-subsidy-amount').value = p?.subsidy_amount||500;
-             document.getElementById('project-modal').classList.add('show');
-         }
-         async function editProject(id) { const res=await fetch(`${API}/api/projects/${id}`); openProjectModal(await res.json()); }
-+        async function deleteProject(id) {
-+            if(!confirm('確認刪除此工程？')) return;
-+            const res=await fetch(`${API}/api/projects/${id}`,{method:'DELETE'});
-+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadProjects();}else{showToast('刪除失敗','error');}
-+        }
-         async function saveProject() {
-             const id=document.getElementById('project-id').value;
-             const data={code:document.getElementById('project-code').value,name:document.getElementById('project-name').value,address:document.getElementById('project-address').value,contact_name:document.getElementById('project-contact-name').value,contact_phone:document.getElementById('project-contact-phone').value,default_distance_km:parseFloat(document.getElementById('project-distance').value),subsidy_threshold_m3:parseFloat(document.getElementById('project-subsidy-threshold').value),subsidy_amount:parseFloat(document.getElementById('project-subsidy-amount').value)};
-             const res=await fetch(id?`${API}/api/projects/${id}`:`${API}/api/projects`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-             if(res.ok){showToast(id?'已更新':'已新增');closeModal('project-modal');loadProjects();}else{showToast((await res.json()).detail||'失敗','error');}
-         }
-         async function toggleProject(id,active) { const p=projectsData.find(x=>x.id===id); await fetch(`${API}/api/projects/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,is_active:active})}); showToast(active?'已啟用':'已停用'); loadProjects(); }
-         
-         // 車輛
-         async function loadTrucks() { const res=await fetch(`${API}/api/trucks?active_only=false`); trucksData=await res.json(); renderTrucks(trucksData); }
--        function renderTrucks(data) { document.getElementById('trucks-table').innerHTML = data.map(t=>`<tr><td><strong>${t.code}</strong></td><td>${t.plate_no}</td><td>${t.driver_name||'-'}</td><td>${t.driver_phone||'-'}</td><td class="num">${t.default_load_m3} m³</td><td class="num">${t.fuel_l_per_km}</td><td class="num">$${t.driver_pay_per_trip}</td><td><span class="badge ${t.is_active?'badge-success':'badge-danger'}">${t.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editTruck(${t.id})">編輯</button></td></tr>`).join(''); }
-+        function renderTrucks(data) { document.getElementById('trucks-table').innerHTML = data.map(t=>`<tr><td><strong>${t.code}</strong></td><td>${t.plate_no}</td><td>${t.driver_name||'-'}</td><td>${t.driver_phone||'-'}</td><td class="num">${t.default_load_m3} m³</td><td class="num">${t.fuel_l_per_km}</td><td class="num">$${t.driver_pay_per_trip}</td><td><span class="badge ${t.is_active?'badge-success':'badge-danger'}">${t.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editTruck(${t.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteTruck(${t.id})">刪除</button></td></tr>`).join(''); }
-         function filterTrucks() { const k=document.getElementById('truck-search').value.toLowerCase(); renderTrucks(trucksData.filter(t=>t.plate_no.toLowerCase().includes(k)||(t.driver_name&&t.driver_name.toLowerCase().includes(k)))); }
-         function openTruckModal(t=null) {
-             document.getElementById('truck-modal-title').textContent = t?'編輯車輛':'新增車輛';
-             document.getElementById('truck-id').value = t?.id||'';
-             document.getElementById('truck-code').value = t?.code||'';
-             document.getElementById('truck-code').disabled = !!t;
-             document.getElementById('truck-plate').value = t?.plate_no||'';
-             document.getElementById('truck-driver-name').value = t?.driver_name||'';
-             document.getElementById('truck-driver-phone').value = t?.driver_phone||'';
-             document.getElementById('truck-load').value = t?.default_load_m3||8;
-             document.getElementById('truck-fuel').value = t?.fuel_l_per_km||0.5;
-             document.getElementById('truck-pay').value = t?.driver_pay_per_trip||800;
-             document.getElementById('truck-modal').classList.add('show');
-         }
-         async function editTruck(id) { const res=await fetch(`${API}/api/trucks/${id}`); openTruckModal(await res.json()); }
-         async function saveTruck() {
-             const id=document.getElementById('truck-id').value;
-             const data={code:document.getElementById('truck-code').value,plate_no:document.getElementById('truck-plate').value,driver_name:document.getElementById('truck-driver-name').value,driver_phone:document.getElementById('truck-driver-phone').value,default_load_m3:parseFloat(document.getElementById('truck-load').value),fuel_l_per_km:parseFloat(document.getElementById('truck-fuel').value),driver_pay_per_trip:parseFloat(document.getElementById('truck-pay').value)};
-             const res=await fetch(id?`${API}/api/trucks/${id}`:`${API}/api/trucks`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-             if(res.ok){showToast(id?'已更新':'已新增');closeModal('truck-modal');loadTrucks();}else{showToast((await res.json()).detail||'失敗','error');}
-         }
-+        async function deleteTruck(id) {
-+            if(!confirm('確認刪除此車輛？')) return;
-+            const res=await fetch(`${API}/api/trucks/${id}`,{method:'DELETE'});
-+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadTrucks();}else{showToast('刪除失敗','error');}
-+        }
-         
-         // 材料單價
-         async function loadMaterials() {
-             const res=await fetch(`${API}/api/material-prices?active_only=false`);
-             materialsData=await res.json();
-             renderMaterials(materialsData);
-             document.getElementById('mix-material-price').innerHTML = '<option value="">-- 不使用 --</option>' + materialsData.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${m.price_id} - ${m.name||''}</option>`).join('');
-         }
--        function renderMaterials(data) { document.getElementById('materials-table').innerHTML = data.map(m=>`<tr><td><strong>${m.price_id}</strong></td><td>${m.name||'-'}</td><td class="num">${m.sand_price.toFixed(4)}</td><td class="num">${m.stone_price.toFixed(4)}</td><td class="num">${m.cement_price.toFixed(4)}</td><td class="num">${m.slag_price.toFixed(4)}</td><td class="num">${m.flyash_price.toFixed(4)}</td><td class="num">${m.admixture_price.toFixed(4)}</td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMaterial(${m.id})">編輯</button><button class="btn btn-sm btn-warning" onclick="recalcMixes(${m.id})">重算</button></td></tr>`).join(''); }
-+        function renderMaterials(data) { document.getElementById('materials-table').innerHTML = data.map(m=>`<tr><td><strong>${m.price_id}</strong></td><td>${m.name||'-'}</td><td class="num">${m.sand_price.toFixed(4)}</td><td class="num">${m.stone_price.toFixed(4)}</td><td class="num">${m.cement_price.toFixed(4)}</td><td class="num">${m.slag_price.toFixed(4)}</td><td class="num">${m.flyash_price.toFixed(4)}</td><td class="num">${m.admixture_price.toFixed(4)}</td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMaterial(${m.id})">編輯</button><button class="btn btn-sm btn-warning" onclick="recalcMixes(${m.id})">重算</button><button class="btn btn-sm btn-danger" onclick="deleteMaterial(${m.id})">刪除</button></td></tr>`).join(''); }
-         function openMaterialModal(m=null) {
-             document.getElementById('material-modal-title').textContent = m?'編輯材料單價':'新增材料單價';
-             document.getElementById('material-id').value = m?.id||'';
-             document.getElementById('material-price-id').value = m?.price_id||'';
-             document.getElementById('material-price-id').disabled = !!m;
-             document.getElementById('material-name').value = m?.name||'';
-             document.getElementById('material-sand').value = m?.sand_price||0;
-             document.getElementById('material-stone').value = m?.stone_price||0;
-             document.getElementById('material-cement').value = m?.cement_price||0;
-             document.getElementById('material-slag').value = m?.slag_price||0;
-             document.getElementById('material-flyash').value = m?.flyash_price||0;
-             document.getElementById('material-admixture').value = m?.admixture_price||0;
-             document.getElementById('material-modal').classList.add('show');
-         }
-         async function editMaterial(id) { const res=await fetch(`${API}/api/material-prices/${id}`); openMaterialModal(await res.json()); }
-         async function saveMaterial() {
-             const id=document.getElementById('material-id').value;
-             const data={price_id:document.getElementById('material-price-id').value,name:document.getElementById('material-name').value,sand_price:parseFloat(document.getElementById('material-sand').value),stone_price:parseFloat(document.getElementById('material-stone').value),cement_price:parseFloat(document.getElementById('material-cement').value),slag_price:parseFloat(document.getElementById('material-slag').value),flyash_price:parseFloat(document.getElementById('material-flyash').value),admixture_price:parseFloat(document.getElementById('material-admixture').value)};
-             const res=await fetch(id?`${API}/api/material-prices/${id}`:`${API}/api/material-prices`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-             if(res.ok){showToast(id?'已更新':'已新增');closeModal('material-modal');loadMaterials();}else{showToast((await res.json()).detail||'失敗','error');}
-         }
-         async function recalcMixes(mpId) { if(!confirm('確定要重算配比成本?'))return; const res=await fetch(`${API}/api/material-prices/${mpId}/recalc-mixes`,{method:'POST'}); const r=await res.json(); showToast(`已更新 ${r.updated} 個配比`); loadMixes(); }
-+        async function deleteMaterial(id) {
-+            if(!confirm('確認刪除此材料單價？')) return;
-+            const res=await fetch(`${API}/api/material-prices/${id}`,{method:'DELETE'});
-+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadMaterials();}else{showToast('刪除失敗','error');}
-+        }
-         
-         // 配比
-         async function loadMixes() {
-             const res=await fetch(`${API}/api/mixes?active_only=false`);
-             mixesData=await res.json();
-             renderMixes(mixesData);
-             document.getElementById('price-mix').innerHTML = mixesData.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${m.psi} PSI - ${m.name||m.code}</option>`).join('');
-+            const psiOptions=[...new Set(mixesData.map(m=>m.psi))].sort((a,b)=>a-b).map(v=>`<option value="${v}">${v} PSI</option>`).join('');
-+            document.getElementById('mix-psi-filter').innerHTML = '<option value="">全部強度</option>' + psiOptions;
-         }
--        function renderMixes(data) { document.getElementById('mixes-table').innerHTML = data.map(m=>`<tr><td><strong>${m.code}</strong></td><td>${m.psi}</td><td>${m.name||'-'}</td><td class="num">${m.sand1_kg}</td><td class="num">${m.sand2_kg}</td><td class="num">${m.stone1_kg}</td><td class="num">${m.stone2_kg}</td><td class="num">${m.cement_kg}</td><td class="num">${m.slag_kg}</td><td class="num">${m.flyash_kg}</td><td class="num">${m.admixture_kg}</td><td class="num"><strong>$${m.material_cost_per_m3.toFixed(2)}</strong></td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMix(${m.id})">編輯</button></td></tr>`).join(''); }
-+        function renderMixes(data) { document.getElementById('mixes-table').innerHTML = data.map(m=>`<tr><td><strong>${m.code}</strong></td><td>${m.psi}</td><td>${m.name||'-'}</td><td class="num">${m.sand1_kg}</td><td class="num">${m.sand2_kg}</td><td class="num">${m.stone1_kg}</td><td class="num">${m.stone2_kg}</td><td class="num">${m.cement_kg}</td><td class="num">${m.slag_kg}</td><td class="num">${m.flyash_kg}</td><td class="num">${m.admixture_kg}</td><td class="num"><strong>$${m.material_cost_per_m3.toFixed(2)}</strong></td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMix(${m.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteMix(${m.id})">刪除</button></td></tr>`).join(''); }
-         function filterMixes() { const psi=document.getElementById('mix-psi-filter').value; renderMixes(psi?mixesData.filter(m=>m.psi==psi):mixesData); }
-         function openMixModal(m=null) {
-             document.getElementById('mix-modal-title').textContent = m?'編輯配比':'新增配比';
-             document.getElementById('mix-id').value = m?.id||'';
-             document.getElementById('mix-code').value = m?.code||'';
-             document.getElementById('mix-code').disabled = !!m;
-             document.getElementById('mix-psi').value = m?.psi||'';
-             document.getElementById('mix-name').value = m?.name||'';
-             document.getElementById('mix-material-price').value = m?.material_price_id||'';
-             document.getElementById('mix-sand1').value = m?.sand1_kg||0;
-             document.getElementById('mix-sand2').value = m?.sand2_kg||0;
-             document.getElementById('mix-stone1').value = m?.stone1_kg||0;
-             document.getElementById('mix-stone2').value = m?.stone2_kg||0;
-             document.getElementById('mix-cement').value = m?.cement_kg||0;
-             document.getElementById('mix-slag').value = m?.slag_kg||0;
-             document.getElementById('mix-flyash').value = m?.flyash_kg||0;
-             document.getElementById('mix-admixture').value = m?.admixture_kg||0;
-             document.getElementById('mix-cost-preview').style.display = 'none';
-             document.getElementById('mix-modal').classList.add('show');
-         }
-         async function editMix(id) { const res=await fetch(`${API}/api/mixes/${id}`); const m=await res.json(); openMixModal(m); if(m.cost_breakdown)showCostBreakdown(m.cost_breakdown,m.material_cost_per_m3); }
-         function previewMixCost() {
-             const mpId=document.getElementById('mix-material-price').value;
-             if(!mpId){showToast('請選擇材料單價','error');return;}
-             const mp=materialsData.find(m=>m.id==mpId);if(!mp)return;
-             const s1=parseFloat(document.getElementById('mix-sand1').value)||0, s2=parseFloat(document.getElementById('mix-sand2').value)||0;
-             const st1=parseFloat(document.getElementById('mix-stone1').value)||0, st2=parseFloat(document.getElementById('mix-stone2').value)||0;
-             const c=parseFloat(document.getElementById('mix-cement').value)||0, sl=parseFloat(document.getElementById('mix-slag').value)||0;
-             const f=parseFloat(document.getElementById('mix-flyash').value)||0, a=parseFloat(document.getElementById('mix-admixture').value)||0;
-             const bd={'砂':{用量:s1+s2,單價:mp.sand_price,小計:(s1+s2)*mp.sand_price},'石':{用量:st1+st2,單價:mp.stone_price,小計:(st1+st2)*mp.stone_price},'水泥':{用量:c,單價:mp.cement_price,小計:c*mp.cement_price},'爐石':{用量:sl,單價:mp.slag_price,小計:sl*mp.slag_price},'飛灰':{用量:f,單價:mp.flyash_price,小計:f*mp.flyash_price},'藥劑':{用量:a,單價:mp.admixture_price,小計:a*mp.admixture_price}};
-             showCostBreakdown(bd,Object.values(bd).reduce((s,i)=>s+i['小計'],0));
-         }
-         function showCostBreakdown(bd,total) {
-             let h='';for(const[n,i]of Object.entries(bd))h+=`<div class="cost-row"><span>${n}: ${i['用量'].toFixed(2)} kg × $${i['單價'].toFixed(4)}</span><span>$${i['小計'].toFixed(2)}</span></div>`;
-             h+=`<div class="cost-row"><span>總成本</span><span>$${total.toFixed(2)}/m³</span></div>`;
-             document.getElementById('mix-cost-detail').innerHTML=h;
-             document.getElementById('mix-cost-preview').style.display='block';
-         }
-         async function saveMix() {
-             const id=document.getElementById('mix-id').value, mpId=document.getElementById('mix-material-price').value;
-             const data={code:document.getElementById('mix-code').value,psi:parseInt(document.getElementById('mix-psi').value),name:document.getElementById('mix-name').value,material_price_id:mpId?parseInt(mpId):null,sand1_kg:parseFloat(document.getElementById('mix-sand1').value)||0,sand2_kg:parseFloat(document.getElementById('mix-sand2').value)||0,stone1_kg:parseFloat(document.getElementById('mix-stone1').value)||0,stone2_kg:parseFloat(document.getElementById('mix-stone2').value)||0,cement_kg:parseFloat(document.getElementById('mix-cement').value)||0,slag_kg:parseFloat(document.getElementById('mix-slag').value)||0,flyash_kg:parseFloat(document.getElementById('mix-flyash').value)||0,admixture_kg:parseFloat(document.getElementById('mix-admixture').value)||0,material_cost_per_m3:0};
-             const res=await fetch(id?`${API}/api/mixes/${id}`:`${API}/api/mixes`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-             if(res.ok){const r=await res.json();showToast(id?`已更新，成本: $${r.material_cost_per_m3?.toFixed(2)||'?'}/m³`:'已新增');closeModal('mix-modal');loadMixes();}else{showToast((await res.json()).detail||'失敗','error');}
-         }
-+        async function deleteMix(id) {
-+            if(!confirm('確認刪除此配比？')) return;
-+            const res=await fetch(`${API}/api/mixes/${id}`,{method:'DELETE'});
-+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadMixes();}else{showToast('刪除失敗','error');}
-+        }
-         
-         // 單價
-         async function loadPrices() { const pid=document.getElementById('price-project-filter').value; const res=await fetch(`${API}/api/prices${pid?`?project_id=${pid}`:''}`); pricesData=await res.json(); renderPrices(pricesData); }
--        function renderPrices(data) { document.getElementById('prices-table').innerHTML = data.map(p=>`<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button></td></tr>`).join(''); }
-+        function renderPrices(data) { document.getElementById('prices-table').innerHTML = data.map(p=>`<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deletePrice(${p.id})">刪除</button></td></tr>`).join(''); }
-         function openPriceModal(p=null) {
-             document.getElementById('price-modal-title').textContent = p?'編輯單價':'新增單價';
-             document.getElementById('price-id').value = p?.id||'';
-             document.getElementById('price-project').value = p?.project_id||projectsData[0]?.id||'';
-             document.getElementById('price-mix').value = p?.mix_id||mixesData[0]?.id||'';
-             document.getElementById('price-amount').value = p?.price_per_m3||'';
-             document.getElementById('price-effective-from').value = p?.effective_from||new Date().toISOString().split('T')[0];
-             document.getElementById('price-modal').classList.add('show');
-         }
-         async function editPrice(id) { openPriceModal(pricesData.find(p=>p.id===id)); }
-         async function savePrice() {
-             const data={project_id:parseInt(document.getElementById('price-project').value),mix_id:parseInt(document.getElementById('price-mix').value),price_per_m3:parseFloat(document.getElementById('price-amount').value),effective_from:document.getElementById('price-effective-from').value||null};
-             const res=await fetch(`${API}/api/prices`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-             if(res.ok){showToast('已儲存');closeModal('price-modal');loadPrices();}else{showToast((await res.json()).detail||'失敗','error');}
-         }
-+        async function deletePrice(id) {
-+            if(!confirm('確認刪除此單價？')) return;
-+            const res=await fetch(`${API}/api/prices/${id}`,{method:'DELETE'});
-+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadPrices();}else{showToast('刪除失敗','error');}
-+        }
-         
-         // 設定
-         async function loadSettings() { const res=await fetch(`${API}/api/settings`); (await res.json()).forEach(s=>{const el=document.getElementById(`setting-${s.key}`);if(el)el.value=s.value;}); }
-         async function saveSettings() { for(const k of['fuel_price','default_psi','default_load_m3'])await fetch(`${API}/api/settings/${k}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:document.getElementById(`setting-${k}`).value})}); showToast('設定已儲存'); }
-         
-         // 初始化
-         (async()=>{await loadMaterials();await loadProjects();await loadTrucks();await loadMixes();await loadPrices();await loadSettings();})();
-     </script>
- </body>
- </html>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>基礎資料管理 - 預拌混凝土系統</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f7fa; min-height: 100vh; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .navbar h1 { color: white; font-size: 20px; }
+        .navbar a { color: white; text-decoration: none; padding: 8px 16px; border-radius: 6px; }
+        .navbar a:hover { background: rgba(255,255,255,0.2); }
+        .layout { display: flex; }
+        .sidebar { width: 220px; background: white; min-height: calc(100vh - 60px); padding: 20px 0; box-shadow: 2px 0 10px rgba(0,0,0,0.05); }
+        .sidebar-item { padding: 15px 25px; cursor: pointer; display: flex; align-items: center; gap: 12px; color: #555; transition: all 0.2s; border-left: 3px solid transparent; }
+        .sidebar-item:hover { background: #f8f9fa; color: #667eea; }
+        .sidebar-item.active { background: linear-gradient(90deg, rgba(102,126,234,0.1), transparent); color: #667eea; border-left-color: #667eea; font-weight: 600; }
+        .main-content { flex: 1; padding: 30px; max-width: calc(100vw - 220px); overflow-x: auto; }
+        .page { display: none; }
+        .page.active { display: block; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 10px; }
+        .page-header h2 { color: #333; font-size: 24px; }
+        .card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; }
+        .form-group label { display: block; margin-bottom: 6px; font-weight: 600; color: #555; font-size: 12px; }
+        .form-group input, .form-group select { width: 100%; padding: 10px 12px; border: 2px solid #e8ecef; border-radius: 6px; font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #667eea; }
+        .form-group input:disabled { background: #f5f5f5; }
+        .form-group input[type="number"] { font-family: monospace; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
+        .btn-success { background: linear-gradient(135deg, #11998e, #38ef7d); color: white; }
+        .btn-warning { background: linear-gradient(135deg, #f5af19, #f12711); color: white; }
+        .btn-secondary { background: #e8ecef; color: #555; }
+        .btn-danger { background: #ff6b6b; color: white; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+        .table-wrapper { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 12px 10px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; font-size: 11px; text-transform: uppercase; white-space: nowrap; }
+        tr:hover { background: #fafbfc; }
+        td.num { text-align: right; font-family: monospace; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .action-btns { display: flex; gap: 5px; white-space: nowrap; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center; padding: 20px; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: white; border-radius: 16px; width: 100%; max-width: 800px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .modal-header { padding: 20px 25px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: white; z-index: 10; }
+        .modal-header h3 { font-size: 18px; color: #333; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+        .modal-body { padding: 25px; }
+        .modal-footer { padding: 15px 25px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px; position: sticky; bottom: 0; background: white; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .search-box input, .search-box select { padding: 10px 14px; border: 2px solid #e8ecef; border-radius: 6px; font-size: 14px; }
+        .toast { position: fixed; top: 20px; right: 20px; padding: 14px 20px; border-radius: 8px; color: white; font-weight: 500; z-index: 2000; animation: slideIn 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        .toast-success { background: linear-gradient(135deg, #11998e, #38ef7d); }
+        .toast-error { background: linear-gradient(135deg, #ff416c, #ff4b2b); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .material-section { background: #f8f9fa; border-radius: 8px; padding: 15px; margin-top: 15px; }
+        .material-section h4 { margin-bottom: 15px; font-size: 14px; color: #667eea; }
+        .cost-breakdown { background: #f8f9fa; border-radius: 8px; padding: 15px; margin-top: 15px; }
+        .cost-breakdown h4 { margin-bottom: 10px; font-size: 14px; }
+        .cost-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px dashed #ddd; }
+        .cost-row:last-child { border-bottom: none; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <h1>⚙️ 基礎資料管理</h1>
+        <div><a href="/">← 返回出車系統</a><a href="/docs" target="_blank">API 文件</a></div>
+    </nav>
+    
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="sidebar-item active" data-page="projects"><span>🏗️</span> 工程管理</div>
+            <div class="sidebar-item" data-page="trucks"><span>🚛</span> 車輛管理</div>
+            <div class="sidebar-item" data-page="materials"><span>💎</span> 材料單價</div>
+            <div class="sidebar-item" data-page="mixes"><span>🧱</span> 配比管理</div>
+            <div class="sidebar-item" data-page="prices"><span>💰</span> 工程單價</div>
+            <div class="sidebar-item" data-page="settings"><span>⚙️</span> 系統設定</div>
+        </aside>
+        
+        <main class="main-content">
+            <div id="page-projects" class="page active">
+                <div class="page-header"><h2>工程管理</h2><button class="btn btn-primary" onclick="openProjectModal()">➕ 新增工程</button></div>
+                <div class="card">
+                    <div class="search-box"><input type="text" id="project-search" placeholder="搜尋工程..." oninput="filterProjects()"></div>
+                    <div class="table-wrapper"><table><thead><tr><th>代號</th><th>名稱</th><th>預設距離</th><th>短載門檻</th><th>短載補貼</th><th>狀態</th><th>操作</th></tr></thead><tbody id="projects-table"></tbody></table></div>
+                </div>
+            </div>
+            
+            <div id="page-trucks" class="page">
+                <div class="page-header"><h2>車輛管理</h2><button class="btn btn-primary" onclick="openTruckModal()">➕ 新增車輛</button></div>
+                <div class="card">
+                    <div class="search-box"><input type="text" id="truck-search" placeholder="搜尋車號或司機..." oninput="filterTrucks()"></div>
+                    <div class="table-wrapper"><table><thead><tr><th>代號</th><th>車牌</th><th>司機</th><th>電話</th><th>預設載量</th><th>油耗</th><th>每趟薪資</th><th>狀態</th><th>操作</th></tr></thead><tbody id="trucks-table"></tbody></table></div>
+                </div>
+            </div>
+            
+            <div id="page-materials" class="page">
+                <div class="page-header"><h2>材料單價</h2><button class="btn btn-primary" onclick="openMaterialModal()">➕ 新增材料單價</button></div>
+                <div class="card">
+                    <div class="table-wrapper"><table><thead><tr><th>代碼</th><th>名稱</th><th class="num">砂 $/kg</th><th class="num">石 $/kg</th><th class="num">水泥 $/kg</th><th class="num">爐石 $/kg</th><th class="num">飛灰 $/kg</th><th class="num">藥劑 $/kg</th><th>狀態</th><th>操作</th></tr></thead><tbody id="materials-table"></tbody></table></div>
+                </div>
+            </div>
+            
+            <div id="page-mixes" class="page">
+                <div class="page-header"><h2>配比管理</h2><button class="btn btn-primary" onclick="openMixModal()">➕ 新增配比</button></div>
+                <div class="card">
+                    <div class="search-box"><select id="mix-psi-filter" onchange="filterMixes()"><option value="">全部強度</option><option value="2000">2000 PSI</option><option value="3000">3000 PSI</option><option value="4000">4000 PSI</option></select></div>
+                    <div class="table-wrapper"><table><thead><tr><th>代號</th><th>PSI</th><th>名稱</th><th class="num">砂1</th><th class="num">砂2</th><th class="num">石1</th><th class="num">石2</th><th class="num">水泥</th><th class="num">爐石</th><th class="num">飛灰</th><th class="num">藥劑</th><th class="num">成本/m³</th><th>狀態</th><th>操作</th></tr></thead><tbody id="mixes-table"></tbody></table></div>
+                </div>
+            </div>
+            
+            <div id="page-prices" class="page">
+                <div class="page-header"><h2>工程單價</h2><button class="btn btn-primary" onclick="openPriceModal()">➕ 新增單價</button></div>
+                <div class="card">
+                    <div class="search-box"><select id="price-project-filter" onchange="loadPrices()"><option value="">-- 全部工程 --</option></select></div>
+                    <div class="table-wrapper"><table><thead><tr><th>工程</th><th>配比</th><th class="num">單價/m³</th><th>生效日</th><th>狀態</th><th>操作</th></tr></thead><tbody id="prices-table"></tbody></table></div>
+                </div>
+            </div>
+            
+            <div id="page-settings" class="page">
+                <div class="page-header"><h2>系統設定</h2></div>
+                <div class="card">
+                    <div class="form-grid">
+                        <div class="form-group"><label>油價 (元/公升)</label><input type="number" id="setting-fuel_price" step="0.1"></div>
+                        <div class="form-group"><label>預設強度 (PSI)</label><input type="number" id="setting-default_psi"></div>
+                        <div class="form-group"><label>預設載量 (m³)</label><input type="number" id="setting-default_load_m3" step="0.1"></div>
+                    </div>
+                    <div style="margin-top: 25px;"><button class="btn btn-success" onclick="saveSettings()">💾 儲存設定</button></div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <div id="project-modal" class="modal-overlay">
+        <div class="modal" style="max-width:600px;">
+            <div class="modal-header"><h3 id="project-modal-title">新增工程</h3><button class="modal-close" onclick="closeModal('project-modal')">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="project-id">
+                <div class="form-grid">
+                    <div class="form-group"><label>代號 *</label><input type="text" id="project-code"></div>
+                    <div class="form-group"><label>名稱 *</label><input type="text" id="project-name"></div>
+                    <div class="form-group" style="grid-column:1/-1;"><label>地址</label><input type="text" id="project-address"></div>
+                    <div class="form-group"><label>聯絡人</label><input type="text" id="project-contact-name"></div>
+                    <div class="form-group"><label>電話</label><input type="text" id="project-contact-phone"></div>
+                    <div class="form-group"><label>預設距離 (km)</label><input type="number" id="project-distance" value="10" step="0.1"></div>
+                    <div class="form-group"><label>短載門檻 (m³)</label><input type="number" id="project-subsidy-threshold" value="6" step="0.1"></div>
+                    <div class="form-group"><label>短載補貼 (元)</label><input type="number" id="project-subsidy-amount" value="500"></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('project-modal')">取消</button><button class="btn btn-success" onclick="saveProject()">儲存</button></div>
+        </div>
+    </div>
+    
+    <div id="truck-modal" class="modal-overlay">
+        <div class="modal" style="max-width:600px;">
+            <div class="modal-header"><h3 id="truck-modal-title">新增車輛</h3><button class="modal-close" onclick="closeModal('truck-modal')">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="truck-id">
+                <div class="form-grid">
+                    <div class="form-group"><label>代號 *</label><input type="text" id="truck-code"></div>
+                    <div class="form-group"><label>車牌 *</label><input type="text" id="truck-plate"></div>
+                    <div class="form-group"><label>司機姓名</label><input type="text" id="truck-driver-name"></div>
+                    <div class="form-group"><label>司機電話</label><input type="text" id="truck-driver-phone"></div>
+                    <div class="form-group"><label>預設載量 (m³)</label><input type="number" id="truck-load" value="8" step="0.1"></div>
+                    <div class="form-group"><label>油耗 (L/km)</label><input type="number" id="truck-fuel" value="0.5" step="0.01"></div>
+                    <div class="form-group"><label>每趟薪資 (元)</label><input type="number" id="truck-pay" value="800"></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('truck-modal')">取消</button><button class="btn btn-success" onclick="saveTruck()">儲存</button></div>
+        </div>
+    </div>
+    
+    <div id="material-modal" class="modal-overlay">
+        <div class="modal" style="max-width:700px;">
+            <div class="modal-header"><h3 id="material-modal-title">新增材料單價</h3><button class="modal-close" onclick="closeModal('material-modal')">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="material-id">
+                <div class="form-grid">
+                    <div class="form-group"><label>代碼 *</label><input type="text" id="material-price-id" placeholder="如: 2025Y"></div>
+                    <div class="form-group"><label>名稱</label><input type="text" id="material-name" placeholder="如: 2025年度"></div>
+                </div>
+                <div class="material-section">
+                    <h4>📦 材料單價 (元/kg)</h4>
+                    <div class="form-grid">
+                        <div class="form-group"><label>砂</label><input type="number" id="material-sand" step="0.001" value="0"></div>
+                        <div class="form-group"><label>石</label><input type="number" id="material-stone" step="0.001" value="0"></div>
+                        <div class="form-group"><label>水泥</label><input type="number" id="material-cement" step="0.001" value="0"></div>
+                        <div class="form-group"><label>爐石</label><input type="number" id="material-slag" step="0.001" value="0"></div>
+                        <div class="form-group"><label>飛灰</label><input type="number" id="material-flyash" step="0.001" value="0"></div>
+                        <div class="form-group"><label>藥劑</label><input type="number" id="material-admixture" step="0.001" value="0"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('material-modal')">取消</button><button class="btn btn-success" onclick="saveMaterial()">儲存</button></div>
+        </div>
+    </div>
+    
+    <div id="mix-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header"><h3 id="mix-modal-title">新增配比</h3><button class="modal-close" onclick="closeModal('mix-modal')">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="mix-id">
+                <div class="form-grid">
+                    <div class="form-group"><label>代號 *</label><input type="text" id="mix-code" placeholder="如: 3002"></div>
+                    <div class="form-group"><label>強度 (PSI) *</label><input type="number" id="mix-psi" placeholder="3000"></div>
+                    <div class="form-group"><label>名稱</label><input type="text" id="mix-name"></div>
+                    <div class="form-group"><label>材料單價</label><select id="mix-material-price"></select></div>
+                </div>
+                <div class="material-section">
+                    <h4>📦 材料用量 (kg/m³)</h4>
+                    <div class="form-grid">
+                        <div class="form-group"><label>砂1</label><input type="number" id="mix-sand1" step="0.01" value="0"></div>
+                        <div class="form-group"><label>砂2</label><input type="number" id="mix-sand2" step="0.01" value="0"></div>
+                        <div class="form-group"><label>石1</label><input type="number" id="mix-stone1" step="0.01" value="0"></div>
+                        <div class="form-group"><label>石2</label><input type="number" id="mix-stone2" step="0.01" value="0"></div>
+                        <div class="form-group"><label>水泥</label><input type="number" id="mix-cement" step="0.01" value="0"></div>
+                        <div class="form-group"><label>爐石</label><input type="number" id="mix-slag" step="0.01" value="0"></div>
+                        <div class="form-group"><label>飛灰</label><input type="number" id="mix-flyash" step="0.01" value="0"></div>
+                        <div class="form-group"><label>藥劑</label><input type="number" id="mix-admixture" step="0.01" value="0"></div>
+                    </div>
+                </div>
+                <div class="cost-breakdown" id="mix-cost-preview" style="display:none;"><h4>💰 成本預覽</h4><div id="mix-cost-detail"></div></div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('mix-modal')">取消</button><button class="btn btn-warning" onclick="previewMixCost()">計算成本</button><button class="btn btn-success" onclick="saveMix()">儲存</button></div>
+        </div>
+    </div>
+    
+    <div id="price-modal" class="modal-overlay">
+        <div class="modal" style="max-width:500px;">
+            <div class="modal-header"><h3 id="price-modal-title">新增單價</h3><button class="modal-close" onclick="closeModal('price-modal')">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="price-id">
+                <div class="form-grid">
+                    <div class="form-group"><label>工程 *</label><select id="price-project"></select></div>
+                    <div class="form-group"><label>配比 *</label><select id="price-mix"></select></div>
+                    <div class="form-group"><label>單價 (元/m³) *</label><input type="number" id="price-amount" step="0.01"></div>
+                    <div class="form-group"><label>生效日期</label><input type="date" id="price-effective-from"></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('price-modal')">取消</button><button class="btn btn-success" onclick="savePrice()">儲存</button></div>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+        let projectsData=[], trucksData=[], mixesData=[], pricesData=[], materialsData=[];
+        
+        document.querySelectorAll('.sidebar-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                item.classList.add('active');
+                document.getElementById('page-' + item.dataset.page).classList.add('active');
+            });
+        });
+        
+        function showToast(msg, type='success') {
+            const t = document.createElement('div');
+            t.className = `toast toast-${type}`;
+            t.textContent = msg;
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+        
+        function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+        
+        // 工程
+        async function loadProjects() {
+            const res = await fetch(`${API}/api/projects?active_only=false`);
+            projectsData = await res.json();
+            renderProjects(projectsData);
+            document.getElementById('price-project-filter').innerHTML = '<option value="">-- 全部 --</option>' + projectsData.filter(p=>p.is_active).map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
+            document.getElementById('price-project').innerHTML = projectsData.filter(p=>p.is_active).map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
+        }
+        function renderProjects(data) {
+            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button><button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">刪除</button></td></tr>`).join('');
+        }
+        function filterProjects() { const k=document.getElementById('project-search').value.toLowerCase(); renderProjects(projectsData.filter(p=>p.code.toLowerCase().includes(k)||p.name.toLowerCase().includes(k))); }
+        function openProjectModal(p=null) {
+            document.getElementById('project-modal-title').textContent = p?'編輯工程':'新增工程';
+            document.getElementById('project-id').value = p?.id||'';
+            document.getElementById('project-code').value = p?.code||'';
+            document.getElementById('project-code').disabled = !!p;
+            document.getElementById('project-name').value = p?.name||'';
+            document.getElementById('project-address').value = p?.address||'';
+            document.getElementById('project-contact-name').value = p?.contact_name||'';
+            document.getElementById('project-contact-phone').value = p?.contact_phone||'';
+            document.getElementById('project-distance').value = p?.default_distance_km||10;
+            document.getElementById('project-subsidy-threshold').value = p?.subsidy_threshold_m3||6;
+            document.getElementById('project-subsidy-amount').value = p?.subsidy_amount||500;
+            document.getElementById('project-modal').classList.add('show');
+        }
+        async function editProject(id) { const res=await fetch(`${API}/api/projects/${id}`); openProjectModal(await res.json()); }
+        async function deleteProject(id) {
+            if(!confirm('確認刪除此工程？')) return;
+            const res=await fetch(`${API}/api/projects/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadProjects();}else{showToast('刪除失敗','error');}
+        }
+        async function saveProject() {
+            const id=document.getElementById('project-id').value;
+            const data={code:document.getElementById('project-code').value,name:document.getElementById('project-name').value,address:document.getElementById('project-address').value,contact_name:document.getElementById('project-contact-name').value,contact_phone:document.getElementById('project-contact-phone').value,default_distance_km:parseFloat(document.getElementById('project-distance').value),subsidy_threshold_m3:parseFloat(document.getElementById('project-subsidy-threshold').value),subsidy_amount:parseFloat(document.getElementById('project-subsidy-amount').value)};
+            const res=await fetch(id?`${API}/api/projects/${id}`:`${API}/api/projects`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+            if(res.ok){showToast(id?'已更新':'已新增');closeModal('project-modal');loadProjects();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        async function toggleProject(id,active) { const p=projectsData.find(x=>x.id===id); await fetch(`${API}/api/projects/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...p,is_active:active})}); showToast(active?'已啟用':'已停用'); loadProjects(); }
+        
+        // 車輛
+        async function loadTrucks() { const res=await fetch(`${API}/api/trucks?active_only=false`); trucksData=await res.json(); renderTrucks(trucksData); }
+        function renderTrucks(data) { document.getElementById('trucks-table').innerHTML = data.map(t=>`<tr><td><strong>${t.code}</strong></td><td>${t.plate_no}</td><td>${t.driver_name||'-'}</td><td>${t.driver_phone||'-'}</td><td class="num">${t.default_load_m3} m³</td><td class="num">${t.fuel_l_per_km}</td><td class="num">$${t.driver_pay_per_trip}</td><td><span class="badge ${t.is_active?'badge-success':'badge-danger'}">${t.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editTruck(${t.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteTruck(${t.id})">刪除</button></td></tr>`).join(''); }
+        function filterTrucks() { const k=document.getElementById('truck-search').value.toLowerCase(); renderTrucks(trucksData.filter(t=>t.plate_no.toLowerCase().includes(k)||(t.driver_name&&t.driver_name.toLowerCase().includes(k)))); }
+        function openTruckModal(t=null) {
+            document.getElementById('truck-modal-title').textContent = t?'編輯車輛':'新增車輛';
+            document.getElementById('truck-id').value = t?.id||'';
+            document.getElementById('truck-code').value = t?.code||'';
+            document.getElementById('truck-code').disabled = !!t;
+            document.getElementById('truck-plate').value = t?.plate_no||'';
+            document.getElementById('truck-driver-name').value = t?.driver_name||'';
+            document.getElementById('truck-driver-phone').value = t?.driver_phone||'';
+            document.getElementById('truck-load').value = t?.default_load_m3||8;
+            document.getElementById('truck-fuel').value = t?.fuel_l_per_km||0.5;
+            document.getElementById('truck-pay').value = t?.driver_pay_per_trip||800;
+            document.getElementById('truck-modal').classList.add('show');
+        }
+        async function editTruck(id) { const res=await fetch(`${API}/api/trucks/${id}`); openTruckModal(await res.json()); }
+        async function saveTruck() {
+            const id=document.getElementById('truck-id').value;
+            const data={code:document.getElementById('truck-code').value,plate_no:document.getElementById('truck-plate').value,driver_name:document.getElementById('truck-driver-name').value,driver_phone:document.getElementById('truck-driver-phone').value,default_load_m3:parseFloat(document.getElementById('truck-load').value),fuel_l_per_km:parseFloat(document.getElementById('truck-fuel').value),driver_pay_per_trip:parseFloat(document.getElementById('truck-pay').value)};
+            const res=await fetch(id?`${API}/api/trucks/${id}`:`${API}/api/trucks`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+            if(res.ok){showToast(id?'已更新':'已新增');closeModal('truck-modal');loadTrucks();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        async function deleteTruck(id) {
+            if(!confirm('確認刪除此車輛？')) return;
+            const res=await fetch(`${API}/api/trucks/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadTrucks();}else{showToast('刪除失敗','error');}
+        }
+        
+        // 材料單價
+        async function loadMaterials() {
+            const res=await fetch(`${API}/api/material-prices?active_only=false`);
+            materialsData=await res.json();
+            renderMaterials(materialsData);
+            document.getElementById('mix-material-price').innerHTML = '<option value="">-- 不使用 --</option>' + materialsData.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${m.price_id} - ${m.name||''}</option>`).join('');
+        }
+        function renderMaterials(data) { document.getElementById('materials-table').innerHTML = data.map(m=>`<tr><td><strong>${m.price_id}</strong></td><td>${m.name||'-'}</td><td class="num">${m.sand_price.toFixed(4)}</td><td class="num">${m.stone_price.toFixed(4)}</td><td class="num">${m.cement_price.toFixed(4)}</td><td class="num">${m.slag_price.toFixed(4)}</td><td class="num">${m.flyash_price.toFixed(4)}</td><td class="num">${m.admixture_price.toFixed(4)}</td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMaterial(${m.id})">編輯</button><button class="btn btn-sm btn-warning" onclick="recalcMixes(${m.id})">重算</button><button class="btn btn-sm btn-danger" onclick="deleteMaterial(${m.id})">刪除</button></td></tr>`).join(''); }
+        function openMaterialModal(m=null) {
+            document.getElementById('material-modal-title').textContent = m?'編輯材料單價':'新增材料單價';
+            document.getElementById('material-id').value = m?.id||'';
+            document.getElementById('material-price-id').value = m?.price_id||'';
+            document.getElementById('material-price-id').disabled = !!m;
+            document.getElementById('material-name').value = m?.name||'';
+            document.getElementById('material-sand').value = m?.sand_price||0;
+            document.getElementById('material-stone').value = m?.stone_price||0;
+            document.getElementById('material-cement').value = m?.cement_price||0;
+            document.getElementById('material-slag').value = m?.slag_price||0;
+            document.getElementById('material-flyash').value = m?.flyash_price||0;
+            document.getElementById('material-admixture').value = m?.admixture_price||0;
+            document.getElementById('material-modal').classList.add('show');
+        }
+        async function editMaterial(id) { const res=await fetch(`${API}/api/material-prices/${id}`); openMaterialModal(await res.json()); }
+        async function saveMaterial() {
+            const id=document.getElementById('material-id').value;
+            const data={price_id:document.getElementById('material-price-id').value,name:document.getElementById('material-name').value,sand_price:parseFloat(document.getElementById('material-sand').value),stone_price:parseFloat(document.getElementById('material-stone').value),cement_price:parseFloat(document.getElementById('material-cement').value),slag_price:parseFloat(document.getElementById('material-slag').value),flyash_price:parseFloat(document.getElementById('material-flyash').value),admixture_price:parseFloat(document.getElementById('material-admixture').value)};
+            const res=await fetch(id?`${API}/api/material-prices/${id}`:`${API}/api/material-prices`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+            if(res.ok){showToast(id?'已更新':'已新增');closeModal('material-modal');loadMaterials();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        async function recalcMixes(mpId) { if(!confirm('確定要重算配比成本?'))return; const res=await fetch(`${API}/api/material-prices/${mpId}/recalc-mixes`,{method:'POST'}); const r=await res.json(); showToast(`已更新 ${r.updated} 個配比`); loadMixes(); }
+        async function deleteMaterial(id) {
+            if(!confirm('確認刪除此材料單價？')) return;
+            const res=await fetch(`${API}/api/material-prices/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadMaterials();}else{showToast('刪除失敗','error');}
+        }
+        
+        // 配比
+        async function loadMixes() {
+            const res=await fetch(`${API}/api/mixes?active_only=false`);
+            mixesData=await res.json();
+            renderMixes(mixesData);
+            document.getElementById('price-mix').innerHTML = mixesData.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${m.psi} PSI - ${m.name||m.code}</option>`).join('');
+        }
+        function renderMixes(data) { document.getElementById('mixes-table').innerHTML = data.map(m=>`<tr><td><strong>${m.code}</strong></td><td>${m.psi}</td><td>${m.name||'-'}</td><td class="num">${m.sand1_kg}</td><td class="num">${m.sand2_kg}</td><td class="num">${m.stone1_kg}</td><td class="num">${m.stone2_kg}</td><td class="num">${m.cement_kg}</td><td class="num">${m.slag_kg}</td><td class="num">${m.flyash_kg}</td><td class="num">${m.admixture_kg}</td><td class="num"><strong>$${m.material_cost_per_m3.toFixed(2)}</strong></td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMix(${m.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteMix(${m.id})">刪除</button></td></tr>`).join(''); }
+        function filterMixes() { const psi=document.getElementById('mix-psi-filter').value; renderMixes(psi?mixesData.filter(m=>m.psi==psi):mixesData); }
+        function openMixModal(m=null) {
+            document.getElementById('mix-modal-title').textContent = m?'編輯配比':'新增配比';
+            document.getElementById('mix-id').value = m?.id||'';
+            document.getElementById('mix-code').value = m?.code||'';
+            document.getElementById('mix-code').disabled = !!m;
+            document.getElementById('mix-psi').value = m?.psi||'';
+            document.getElementById('mix-name').value = m?.name||'';
+            document.getElementById('mix-material-price').value = m?.material_price_id||'';
+            document.getElementById('mix-sand1').value = m?.sand1_kg||0;
+            document.getElementById('mix-sand2').value = m?.sand2_kg||0;
+            document.getElementById('mix-stone1').value = m?.stone1_kg||0;
+            document.getElementById('mix-stone2').value = m?.stone2_kg||0;
+            document.getElementById('mix-cement').value = m?.cement_kg||0;
+            document.getElementById('mix-slag').value = m?.slag_kg||0;
+            document.getElementById('mix-flyash').value = m?.flyash_kg||0;
+            document.getElementById('mix-admixture').value = m?.admixture_kg||0;
+            document.getElementById('mix-cost-preview').style.display = 'none';
+            document.getElementById('mix-modal').classList.add('show');
+        }
+        async function editMix(id) { const res=await fetch(`${API}/api/mixes/${id}`); const m=await res.json(); openMixModal(m); if(m.cost_breakdown)showCostBreakdown(m.cost_breakdown,m.material_cost_per_m3); }
+        function previewMixCost() {
+            const mpId=document.getElementById('mix-material-price').value;
+            if(!mpId){showToast('請選擇材料單價','error');return;}
+            const mp=materialsData.find(m=>m.id==mpId);if(!mp)return;
+            const s1=parseFloat(document.getElementById('mix-sand1').value)||0, s2=parseFloat(document.getElementById('mix-sand2').value)||0;
+            const st1=parseFloat(document.getElementById('mix-stone1').value)||0, st2=parseFloat(document.getElementById('mix-stone2').value)||0;
+            const c=parseFloat(document.getElementById('mix-cement').value)||0, sl=parseFloat(document.getElementById('mix-slag').value)||0;
+            const f=parseFloat(document.getElementById('mix-flyash').value)||0, a=parseFloat(document.getElementById('mix-admixture').value)||0;
+            const bd={'砂':{用量:s1+s2,單價:mp.sand_price,小計:(s1+s2)*mp.sand_price},'石':{用量:st1+st2,單價:mp.stone_price,小計:(st1+st2)*mp.stone_price},'水泥':{用量:c,單價:mp.cement_price,小計:c*mp.cement_price},'爐石':{用量:sl,單價:mp.slag_price,小計:sl*mp.slag_price},'飛灰':{用量:f,單價:mp.flyash_price,小計:f*mp.flyash_price},'藥劑':{用量:a,單價:mp.admixture_price,小計:a*mp.admixture_price}};
+            showCostBreakdown(bd,Object.values(bd).reduce((s,i)=>s+i['小計'],0));
+        }
+        function showCostBreakdown(bd,total) {
+            let h='';for(const[n,i]of Object.entries(bd))h+=`<div class="cost-row"><span>${n}: ${i['用量'].toFixed(2)} kg × $${i['單價'].toFixed(4)}</span><span>$${i['小計'].toFixed(2)}</span></div>`;
+            h+=`<div class="cost-row"><span>總成本</span><span>$${total.toFixed(2)}/m³</span></div>`;
+            document.getElementById('mix-cost-detail').innerHTML=h;
+            document.getElementById('mix-cost-preview').style.display='block';
+        }
+        async function saveMix() {
+            const id=document.getElementById('mix-id').value, mpId=document.getElementById('mix-material-price').value;
+            const data={code:document.getElementById('mix-code').value,psi:parseInt(document.getElementById('mix-psi').value),name:document.getElementById('mix-name').value,material_price_id:mpId?parseInt(mpId):null,sand1_kg:parseFloat(document.getElementById('mix-sand1').value)||0,sand2_kg:parseFloat(document.getElementById('mix-sand2').value)||0,stone1_kg:parseFloat(document.getElementById('mix-stone1').value)||0,stone2_kg:parseFloat(document.getElementById('mix-stone2').value)||0,cement_kg:parseFloat(document.getElementById('mix-cement').value)||0,slag_kg:parseFloat(document.getElementById('mix-slag').value)||0,flyash_kg:parseFloat(document.getElementById('mix-flyash').value)||0,admixture_kg:parseFloat(document.getElementById('mix-admixture').value)||0,material_cost_per_m3:0};
+            const res=await fetch(id?`${API}/api/mixes/${id}`:`${API}/api/mixes`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+            if(res.ok){const r=await res.json();showToast(id?`已更新，成本: $${r.material_cost_per_m3?.toFixed(2)||'?'}/m³`:'已新增');closeModal('mix-modal');loadMixes();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        async function deleteMix(id) {
+            if(!confirm('確認刪除此配比？')) return;
+            const res=await fetch(`${API}/api/mixes/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadMixes();}else{showToast('刪除失敗','error');}
+        }
+        
+        // 單價
+        async function loadPrices() { const pid=document.getElementById('price-project-filter').value; const res=await fetch(`${API}/api/prices${pid?`?project_id=${pid}`:''}`); pricesData=await res.json(); renderPrices(pricesData); }
+        function renderPrices(data) { document.getElementById('prices-table').innerHTML = data.map(p=>`<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deletePrice(${p.id})">刪除</button></td></tr>`).join(''); }
+        function openPriceModal(p=null) {
+            document.getElementById('price-modal-title').textContent = p?'編輯單價':'新增單價';
+            document.getElementById('price-id').value = p?.id||'';
+            document.getElementById('price-project').value = p?.project_id||projectsData[0]?.id||'';
+            document.getElementById('price-mix').value = p?.mix_id||mixesData[0]?.id||'';
+            document.getElementById('price-amount').value = p?.price_per_m3||'';
+            document.getElementById('price-effective-from').value = p?.effective_from||new Date().toISOString().split('T')[0];
+            document.getElementById('price-modal').classList.add('show');
+        }
+        async function editPrice(id) { openPriceModal(pricesData.find(p=>p.id===id)); }
+        async function savePrice() {
+            const data={project_id:parseInt(document.getElementById('price-project').value),mix_id:parseInt(document.getElementById('price-mix').value),price_per_m3:parseFloat(document.getElementById('price-amount').value),effective_from:document.getElementById('price-effective-from').value||null};
+            const res=await fetch(`${API}/api/prices`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+            if(res.ok){showToast('已儲存');closeModal('price-modal');loadPrices();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        async function deletePrice(id) {
+            if(!confirm('確認刪除此單價？')) return;
+            const res=await fetch(`${API}/api/prices/${id}`,{method:'DELETE'});
+            if(res.ok){const r=await res.json();showToast(r.message||'已刪除');loadPrices();}else{showToast('刪除失敗','error');}
+        }
+        
+        // 設定
+        async function loadSettings() { const res=await fetch(`${API}/api/settings`); (await res.json()).forEach(s=>{const el=document.getElementById(`setting-${s.key}`);if(el)el.value=s.value;}); }
+        async function saveSettings() { for(const k of['fuel_price','default_psi','default_load_m3'])await fetch(`${API}/api/settings/${k}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:document.getElementById(`setting-${k}`).value})}); showToast('設定已儲存'); }
+        
+        // 初始化
+        (async()=>{await loadMaterials();await loadProjects();await loadTrucks();await loadMixes();await loadPrices();await loadSettings();})();
+    </script>
+</body>
+</html>
