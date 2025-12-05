@@ -202,7 +202,6 @@ class DispatchResponse(BaseModel):
 
 class DispatchUpdate(BaseModel):
     """更新出車紀錄的欄位"""
-
     date: Optional[str] = None
     project: Optional[str] = None
     truck: Optional[str] = None
