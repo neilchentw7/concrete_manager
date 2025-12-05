@@ -449,6 +449,8 @@ def init_default_settings(db: Session):
         ("fuel_price", "32.5", "當前油價 $/L"),
         ("default_psi", "3000", "預設強度"),
         ("default_load_m3", "8", "預設載量 m³"),
+        ("driver_daily_salary", "0", "司機每日薪資"),
+        ("driver_count", "0", "司機人數"),
     ]
     
     for key, value, desc in defaults:

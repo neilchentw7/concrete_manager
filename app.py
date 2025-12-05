@@ -889,20 +889,39 @@ def create_daily_summary(data: DailySummaryCreate, db: Session = Depends(get_db)
 
 @app.get("/api/reports/daily")
 def report_daily(
-    date_str: str,
+    date_str: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """日報表"""
+    """日報表，支援日期區間"""
+    def parse(d: str) -> date:
+        return date.fromisoformat(d)
+
+    if not date_str and not start_date and not end_date:
+        date_str = date.today().isoformat()
+
+    if start_date is None:
+        start_date = date_str
+    if end_date is None:
+        end_date = start_date
+
+    start_dt = parse(start_date)
+    end_dt = parse(end_date)
+
     dispatches = db.query(Dispatch).filter(
-        Dispatch.date == date_str,
+        Dispatch.date >= start_dt,
+        Dispatch.date <= end_dt,
         Dispatch.status != "cancelled"
     ).all()
     summaries = db.query(DailySummary).join(Project).filter(
-        DailySummary.date == date_str
+        DailySummary.date >= start_dt,
+        DailySummary.date <= end_dt
     ).all()
 
     summary = {
-        "date": date_str,
+        "start_date": start_dt,
+        "end_date": end_dt,
         "total_trips": len(dispatches) + sum(s.trips for s in summaries),
         "total_m3": sum(d.load_m3 for d in dispatches) + sum(s.total_m3 for s in summaries),
         "total_revenue": sum(d.total_revenue for d in dispatches),
@@ -1255,22 +1274,34 @@ def get_main_page_html():
             <a href="/admin" style="color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 20px;">⚙️ 基礎資料管理</a>
             <a href="/docs" target="_blank" style="color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 20px; margin-left: 10px;">📖 API 文件</a>
         </p>
-        
+
+        <div style="display:flex; gap:10px; align-items:flex-end; justify-content:flex-end; margin-bottom:10px;">
+            <div class="form-group" style="max-width:180px;">
+                <label style="color:white; opacity:0.9;">統計起始日</label>
+                <input type="date" id="stat-start" style="background:rgba(255,255,255,0.9);">
+            </div>
+            <div class="form-group" style="max-width:180px;">
+                <label style="color:white; opacity:0.9;">統計結束日</label>
+                <input type="date" id="stat-end" style="background:rgba(255,255,255,0.9);">
+            </div>
+            <button class="btn btn-secondary" onclick="loadStats()">更新統計</button>
+        </div>
+
         <div class="grid" id="stats-grid" style="margin-bottom: 20px;">
             <div class="stat-card">
-                <h3>今日出車</h3>
+                <h3>出車趟次</h3>
                 <div class="value" id="stat-trips">-</div>
             </div>
             <div class="stat-card">
-                <h3>今日方數</h3>
+                <h3>出貨方數</h3>
                 <div class="value" id="stat-m3">-</div>
             </div>
             <div class="stat-card">
-                <h3>今日收入</h3>
+                <h3>收入</h3>
                 <div class="value" id="stat-revenue">-</div>
             </div>
             <div class="stat-card">
-                <h3>今日毛利</h3>
+                <h3>毛利</h3>
                 <div class="value" id="stat-profit">-</div>
             </div>
         </div>
@@ -1295,8 +1326,8 @@ def get_main_page_html():
                     <select id="summary-project"><option>載入中...</option></select>
                 </div>
                 <div class="form-group">
-                    <label>預拌強度 (PSI)</label>
-                    <input type="number" id="summary-psi" value="3000">
+                    <label>配比</label>
+                    <select id="summary-mix"><option>載入中...</option></select>
                 </div>
                 <div class="form-group">
                     <label>總出貨量 (m³)</label>
@@ -1380,6 +1411,8 @@ def get_main_page_html():
         document.getElementById('summary-date').value = today;
         document.getElementById('query-start').value = today;
         document.getElementById('query-end').value = today;
+        document.getElementById('stat-start').value = today;
+        document.getElementById('stat-end').value = today;
 
         let projects = [], trucks = [], mixes = [], tripCount = 0;
 
@@ -1391,6 +1424,8 @@ def get_main_page_html():
             const projectOptions = projects.map(p => `<option value="${p.code}">${p.name} (${p.code})</option>`).join('');
             document.getElementById('summary-project').innerHTML = '<option value="">請選擇</option>' + projectOptions;
             document.getElementById('query-project').innerHTML = '<option value="">全部</option>' + projectOptions;
+            const mixOptions = mixes.filter(m => m.is_active).map(m => `<option value="${m.code}">${m.code} (${m.psi} PSI)</option>`).join('');
+            document.getElementById('summary-mix').innerHTML = '<option value="">請選擇</option>' + mixOptions;
 
             document.getElementById('project-count').textContent = projects.length;
             document.getElementById('truck-count').textContent = trucks.length;
@@ -1407,18 +1442,21 @@ def get_main_page_html():
             ).join('');
 
             renderTripSummary();
-            loadTodayStats();
+            loadStats();
         }
 
-        async function loadTodayStats() {
+        async function loadStats() {
+            const start = document.getElementById('stat-start').value || today;
+            const end = document.getElementById('stat-end').value || start;
+            const params = new URLSearchParams({ start_date: start, end_date: end });
             try {
-                const data = await fetch(`/api/reports/daily?date_str=${today}`).then(r => r.json());
+                const data = await fetch(`/api/reports/daily?${params.toString()}`).then(r => r.json());
                 document.getElementById('stat-trips').textContent = data.summary.total_trips;
                 document.getElementById('stat-m3').textContent = data.summary.total_m3.toFixed(1) + ' m³';
                 document.getElementById('stat-revenue').textContent = '$' + data.summary.total_revenue.toLocaleString();
                 document.getElementById('stat-profit').textContent = '$' + data.summary.gross_profit.toLocaleString();
             } catch(e) {
-                console.log('No data for today');
+                console.log('No data for selected range');
             }
         }
 
@@ -1432,6 +1470,11 @@ def get_main_page_html():
         function getSelectedProject() {
             const code = document.getElementById('summary-project').value;
             return projects.find(p => p.code === code);
+        }
+
+        function getSelectedMix() {
+            const code = document.getElementById('summary-mix').value;
+            return mixes.find(m => m.code === code);
         }
 
         function renderTripSummary() {
@@ -1458,22 +1501,23 @@ def get_main_page_html():
         async function saveDailySummary() {
             const date = document.getElementById('summary-date').value;
             const project = document.getElementById('summary-project').value;
-            const psi = document.getElementById('summary-psi').value;
+            const mix = getSelectedMix();
             const total_m3 = parseFloat(document.getElementById('summary-total-m3').value || '0');
 
             if (!date || !project) { alert('請選擇日期與工程'); return; }
+            if (!mix) { alert('請選擇配比'); return; }
             if (total_m3 <= 0) { alert('請輸入總出貨量'); return; }
 
             const res = await fetch('/api/daily-summaries', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ date, project, psi: psi ? parseInt(psi) : null, total_m3, trips: tripCount })
+                body: JSON.stringify({ date, project, psi: mix ? parseInt(mix.psi) : null, total_m3, trips: tripCount })
             });
 
             if (res.ok) {
                 alert('✅ 已儲存');
                 resetSummaryForm();
-                loadTodayStats();
+                loadStats();
                 queryRecords();
             } else {
                 const err = await res.json();

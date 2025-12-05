@@ -131,6 +131,8 @@
                         <div class="form-group"><label>油價 (元/公升)</label><input type="number" id="setting-fuel_price" step="0.1"></div>
                         <div class="form-group"><label>預設強度 (PSI)</label><input type="number" id="setting-default_psi"></div>
                         <div class="form-group"><label>預設載量 (m³)</label><input type="number" id="setting-default_load_m3" step="0.1"></div>
+                        <div class="form-group"><label>司機每日薪資 (元)</label><input type="number" id="setting-driver_daily_salary" step="1"></div>
+                        <div class="form-group"><label>出勤司機人數</label><input type="number" id="setting-driver_count" step="1"></div>
                     </div>
                     <div style="margin-top: 25px;"><button class="btn btn-success" onclick="saveSettings()">💾 儲存設定</button></div>
                 </div>
@@ -383,6 +385,8 @@
             mixesData=await res.json();
             renderMixes(mixesData);
             document.getElementById('price-mix').innerHTML = mixesData.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${m.psi} PSI - ${m.name||m.code}</option>`).join('');
+            const psiOptions=[...new Set(mixesData.map(m=>m.psi))].sort((a,b)=>a-b).map(p=>`<option value="${p}">${p} PSI</option>`).join('');
+            document.getElementById('mix-psi-filter').innerHTML=`<option value="">全部強度</option>${psiOptions}`;
         }
         function renderMixes(data) { document.getElementById('mixes-table').innerHTML = data.map(m=>`<tr><td><strong>${m.code}</strong></td><td>${m.psi}</td><td>${m.name||'-'}</td><td class="num">${m.sand1_kg}</td><td class="num">${m.sand2_kg}</td><td class="num">${m.stone1_kg}</td><td class="num">${m.stone2_kg}</td><td class="num">${m.cement_kg}</td><td class="num">${m.slag_kg}</td><td class="num">${m.flyash_kg}</td><td class="num">${m.admixture_kg}</td><td class="num"><strong>$${m.material_cost_per_m3.toFixed(2)}</strong></td><td><span class="badge ${m.is_active?'badge-success':'badge-danger'}">${m.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editMix(${m.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteMix(${m.id})">刪除</button></td></tr>`).join(''); }
         function filterMixes() { const psi=document.getElementById('mix-psi-filter').value; renderMixes(psi?mixesData.filter(m=>m.psi==psi):mixesData); }
@@ -461,7 +465,7 @@
         
         // 設定
         async function loadSettings() { const res=await fetch(`${API}/api/settings`); (await res.json()).forEach(s=>{const el=document.getElementById(`setting-${s.key}`);if(el)el.value=s.value;}); }
-        async function saveSettings() { for(const k of['fuel_price','default_psi','default_load_m3'])await fetch(`${API}/api/settings/${k}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:document.getElementById(`setting-${k}`).value})}); showToast('設定已儲存'); }
+        async function saveSettings() { for(const k of['fuel_price','default_psi','default_load_m3','driver_daily_salary','driver_count'])await fetch(`${API}/api/settings/${k}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:document.getElementById(`setting-${k}`).value})}); showToast('設定已儲存'); }
         
         // 初始化
         (async()=>{await loadMaterials();await loadProjects();await loadTrucks();await loadMixes();await loadPrices();await loadSettings();})();
