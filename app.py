@@ -200,6 +200,16 @@ class DispatchResponse(BaseModel):
         from_attributes = True
 
 
+class DispatchUpdate(BaseModel):
+    """更新出車紀錄的欄位"""
+    date: Optional[str] = None
+    project: Optional[str] = None
+    truck: Optional[str] = None
+    mix: Optional[str] = None
+    load_m3: Optional[float] = None
+    distance_km: Optional[float] = None
+
+
 class DailySummaryCreate(BaseModel):
     date: date
     project: str
@@ -851,6 +861,100 @@ def list_dispatches(
     } for d in dispatches]
 
 
+@app.put("/api/dispatches/{dispatch_id}")
+def update_dispatch(dispatch_id: int, data: DispatchUpdate, db: Session = Depends(get_db)):
+    """更新出車紀錄並重算收入/成本/毛利"""
+    dispatch = db.query(Dispatch).filter(Dispatch.id == dispatch_id, Dispatch.status != "cancelled").first()
+    if not dispatch:
+        raise HTTPException(404, "出車紀錄不存在")
+
+    calc = DispatchCalculator(db)
+
+    dispatch_date = calc.parse_date(data.date) if data.date else dispatch.date
+    project = calc.find_project(data.project) if data.project else dispatch.project
+    truck = calc.find_truck(data.truck) if data.truck else dispatch.truck
+
+    if data.mix:
+        mix = calc.find_mix(data.mix)
+    elif dispatch.mix:
+        mix = dispatch.mix
+    elif project.default_mix:
+        mix = project.default_mix
+    else:
+        mix = calc.find_mix(calc.get_setting("default_psi", "3000"))
+
+    load_m3 = data.load_m3 if data.load_m3 is not None else dispatch.load_m3
+    distance_km = data.distance_km if data.distance_km is not None else (dispatch.distance_km or project.default_distance_km or 0)
+
+    price_per_m3 = calc.get_price(project, mix, dispatch_date)
+    revenue_calc = calc.calculate_revenue(project, load_m3, price_per_m3)
+    cost_calc = calc.calculate_costs(
+        project,
+        mix,
+        truck,
+        load_m3,
+        distance_km,
+        dispatch_date=dispatch_date,
+        include_current_trip=False,
+    )
+
+    gross_profit = revenue_calc["total_revenue"] - cost_calc["total_cost"]
+    profit_margin = (gross_profit / revenue_calc["total_revenue"] * 100) if revenue_calc["total_revenue"] > 0 else 0
+
+    # 若日期或工程變更則重新產生出車編號
+    if dispatch.project_id != project.id or dispatch.date != dispatch_date:
+        dispatch.dispatch_no = calc.generate_dispatch_no(project, dispatch_date)
+
+    dispatch.date = dispatch_date
+    dispatch.project_id = project.id
+    dispatch.mix_id = mix.id
+    dispatch.truck_id = truck.id
+    dispatch.load_m3 = load_m3
+    dispatch.distance_km = distance_km
+    dispatch.price_per_m3 = price_per_m3
+    dispatch.revenue = revenue_calc["revenue"]
+    dispatch.subsidy = revenue_calc["subsidy"]
+    dispatch.total_revenue = revenue_calc["total_revenue"]
+    dispatch.material_cost = cost_calc["material_cost"]
+    dispatch.fuel_cost = cost_calc["fuel_cost"]
+    dispatch.driver_cost = cost_calc["driver_cost"]
+    dispatch.total_cost = cost_calc["total_cost"]
+    dispatch.gross_profit = round(gross_profit, 2)
+    dispatch.profit_margin = round(profit_margin, 2)
+
+    db.commit()
+    db.refresh(dispatch)
+
+    return {
+        "id": dispatch.id,
+        "dispatch_no": dispatch.dispatch_no,
+        "date": dispatch.date,
+        "project_code": project.code,
+        "project_name": project.name,
+        "truck_plate": truck.plate_no,
+        "driver_name": truck.driver_name,
+        "mix_psi": mix.psi,
+        "load_m3": dispatch.load_m3,
+        "distance_km": dispatch.distance_km,
+        "price_per_m3": dispatch.price_per_m3,
+        "total_revenue": dispatch.total_revenue,
+        "total_cost": dispatch.total_cost,
+        "gross_profit": dispatch.gross_profit,
+    }
+
+
+@app.delete("/api/dispatches/{dispatch_id}")
+def delete_dispatch(dispatch_id: int, db: Session = Depends(get_db)):
+    """刪除出車紀錄"""
+    dispatch = db.query(Dispatch).filter(Dispatch.id == dispatch_id).first()
+    if not dispatch:
+        raise HTTPException(404, "出車紀錄不存在")
+
+    db.delete(dispatch)
+    db.commit()
+    return {"status": "deleted", "dispatch_no": dispatch.dispatch_no}
+
+
 # ============================================================
 # 日彙總 API
 # ============================================================
@@ -926,6 +1030,136 @@ def create_daily_summary(data: DailySummaryCreate, db: Session = Depends(get_db)
 # 報表 API
 # ============================================================
 
+
+def compute_financials(db: Session, start_dt: date, end_dt: date, dispatches: List[Dispatch], summaries: List[DailySummary]):
+    """依據指定期間重新計算收入、成本與毛利，並附上公式資訊。"""
+    driver_salary_setting = db.query(Setting).filter(Setting.key == "driver_daily_salary").first()
+    driver_count_setting = db.query(Setting).filter(Setting.key == "driver_count").first()
+    driver_daily_salary = float(driver_salary_setting.value) if driver_salary_setting else 0.0
+    driver_count = int(float(driver_count_setting.value)) if driver_count_setting else 0
+    total_driver_salary = driver_daily_salary * driver_count
+
+    calc = DispatchCalculator(db)
+
+    # 按日期彙總車次，供司機成本分攤
+    trips_by_date = {}
+    for d in dispatches:
+        trips_by_date[d.date] = trips_by_date.get(d.date, 0) + 1
+    for s in summaries:
+        trips_by_date[s.date] = trips_by_date.get(s.date, 0) + (s.trips or 0)
+
+    # 按工程彙總資料
+    project_stats = {}
+
+    def ensure_project_entry(project: Project):
+        if project.code not in project_stats:
+            project_stats[project.code] = {
+                "project_name": project.name,
+                "trips": 0,
+                "m3": 0.0,
+                "price_volume": 0.0,
+                "material_volume_cost": 0.0,
+                "fuel_cost": 0.0,
+                "driver_cost": 0.0,
+            }
+
+    for d in dispatches:
+        ensure_project_entry(d.project)
+        project_stats[d.project.code]["trips"] += 1
+        project_stats[d.project.code]["m3"] += d.load_m3 or 0
+        project_stats[d.project.code]["price_volume"] += (d.load_m3 or 0) * (d.price_per_m3 or 0)
+        project_stats[d.project.code]["material_volume_cost"] += (d.load_m3 or 0) * (d.mix.material_cost_per_m3 or 0)
+        project_stats[d.project.code]["fuel_cost"] += d.fuel_cost or 0
+
+    for s in summaries:
+        ensure_project_entry(s.project)
+        project_stats[s.project.code]["trips"] += s.trips or 0
+        project_stats[s.project.code]["m3"] += s.total_m3 or 0
+
+        # 透過 psi 找配比和單價
+        mix = None
+        if s.psi:
+            mix = db.query(Mix).filter(Mix.psi == s.psi, Mix.is_active == True).first()
+        if not mix and s.project.default_mix:
+            mix = s.project.default_mix
+        if not mix:
+            try:
+                mix = calc.find_mix(calc.get_setting("default_psi", "3000"))
+            except Exception:
+                mix = None
+
+        if mix:
+            project_stats[s.project.code]["material_volume_cost"] += (s.total_m3 or 0) * (mix.material_cost_per_m3 or 0)
+            try:
+                price = calc.get_price(s.project, mix, s.date)
+                project_stats[s.project.code]["price_volume"] += (s.total_m3 or 0) * price
+            except Exception:
+                pass
+
+    # 按日期計算司機分攤
+    for day, total_trips in trips_by_date.items():
+        if total_trips <= 0 or total_driver_salary <= 0:
+            continue
+        per_trip = total_driver_salary / total_trips
+        for code, stat in project_stats.items():
+            # 只把該日期的車次計入 (需要再查一次)
+            project_trip_on_day = sum(1 for d in dispatches if d.date == day and d.project.code == code)
+            project_trip_on_day += sum(s.trips or 0 for s in summaries if s.date == day and s.project.code == code)
+            if project_trip_on_day:
+                stat["driver_cost"] += per_trip * project_trip_on_day
+
+    # 整理公式與結果
+    totals = {
+        "start_date": start_dt,
+        "end_date": end_dt,
+        "total_trips": sum(v["trips"] for v in project_stats.values()),
+        "total_m3": sum(v["m3"] for v in project_stats.values()),
+        "total_revenue": 0.0,
+        "total_cost": 0.0,
+        "gross_profit": 0.0,
+    }
+
+    project_formatted = {}
+    for code, stat in project_stats.items():
+        avg_load = (stat["m3"] / stat["trips"]) if stat["trips"] else 0
+        avg_price = (stat["price_volume"] / stat["m3"]) if stat["m3"] else 0
+        revenue = avg_load * avg_price * stat["trips"]
+        material_cost = stat["material_volume_cost"]
+        fuel_cost = stat["fuel_cost"]
+        driver_cost = stat["driver_cost"]
+        total_cost = material_cost + fuel_cost + driver_cost
+        profit = revenue - total_cost
+
+        project_formatted[code] = {
+            "project_name": stat["project_name"],
+            "trips": stat["trips"],
+            "m3": round(stat["m3"], 2),
+            "avg_load_m3": round(avg_load, 2),
+            "price_per_m3": round(avg_price, 2),
+            "revenue": round(revenue, 2),
+            "material_cost": round(material_cost, 2),
+            "fuel_cost": round(fuel_cost, 2),
+            "driver_cost": round(driver_cost, 2),
+            "total_cost": round(total_cost, 2),
+            "gross_profit": round(profit, 2),
+            "formulas": {
+                "revenue": f"(總量 {round(stat['m3'],2)} ÷ 車次 {stat['trips']}) × 單價 {round(avg_price,2)} × 車次 {stat['trips']} = {round(revenue,2)}",
+                "material": f"總量 {round(stat['m3'],2)} × 材料成本/m³ {round((stat['material_volume_cost']/stat['m3']) if stat['m3'] else 0,2)} = {round(material_cost,2)}",
+                "driver": f"(日薪 {round(driver_daily_salary,2)} × 司機 {driver_count} 人 ÷ 全部車次 {sum(trips_by_date.values()) or 1}) × 該工程車次 {stat['trips']} ≈ {round(driver_cost,2)}" if total_driver_salary > 0 else "未設定司機薪資",
+                "gross_profit": f"收入 {round(revenue,2)} - 成本 {round(total_cost,2)} = {round(profit,2)}"
+            }
+        }
+
+        totals["total_revenue"] += revenue
+        totals["total_cost"] += total_cost
+        totals["gross_profit"] += profit
+
+    totals["total_revenue"] = round(totals["total_revenue"], 2)
+    totals["total_cost"] = round(totals["total_cost"], 2)
+    totals["gross_profit"] = round(totals["gross_profit"], 2)
+
+    return {"totals": totals, "projects": project_formatted}
+
 @app.get("/api/reports/daily")
 def report_daily(
     date_str: Optional[str] = None,
@@ -958,43 +1192,12 @@ def report_daily(
         DailySummary.date <= end_dt
     ).all()
 
-    summary = {
-        "start_date": start_dt,
-        "end_date": end_dt,
-        "total_trips": len(dispatches) + sum(s.trips for s in summaries),
-        "total_m3": sum(d.load_m3 for d in dispatches) + sum(s.total_m3 for s in summaries),
-        "total_revenue": sum(d.total_revenue for d in dispatches),
-        "total_cost": sum(d.total_cost for d in dispatches),
-        "gross_profit": sum(d.gross_profit for d in dispatches),
-    }
+    financials = compute_financials(db, start_dt, end_dt, dispatches, summaries)
 
-    by_project = {}
-    for d in dispatches:
-        key = d.project.code
-        if key not in by_project:
-            by_project[key] = {
-                "project_name": d.project.name,
-                "trips": 0, "m3": 0, "revenue": 0, "cost": 0, "profit": 0
-            }
-        by_project[key]["trips"] += 1
-        by_project[key]["m3"] += d.load_m3
-        by_project[key]["revenue"] += d.total_revenue
-        by_project[key]["cost"] += d.total_cost
-        by_project[key]["profit"] += d.gross_profit
-
-    for s in summaries:
-        key = s.project.code
-        if key not in by_project:
-            by_project[key] = {
-                "project_name": s.project.name,
-                "trips": 0, "m3": 0, "revenue": 0, "cost": 0, "profit": 0
-            }
-        by_project[key]["trips"] += s.trips
-        by_project[key]["m3"] += s.total_m3
-    
     return {
-        "summary": summary,
-        "by_project": by_project
+        "summary": financials["totals"],
+        "by_project": financials["projects"],
+        "financials": financials
     }
 
 @app.get("/api/reports/monthly")
@@ -1340,6 +1543,10 @@ def get_main_page_html():
                 <div class="value" id="stat-revenue">-</div>
             </div>
             <div class="stat-card">
+                <h3>成本</h3>
+                <div class="value" id="stat-cost">-</div>
+            </div>
+            <div class="stat-card">
                 <h3>毛利</h3>
                 <div class="value" id="stat-profit">-</div>
             </div>
@@ -1423,6 +1630,7 @@ def get_main_page_html():
                 </div>
             </div>
             <div id="records-result"></div>
+            <div id="dispatch-list"></div>
         </div>
         
         <div id="tab-master" class="card" style="display:none;">
@@ -1444,7 +1652,25 @@ def get_main_page_html():
             </div>
         </div>
     </div>
-    
+
+    <div id="edit-dispatch-modal" class="modal-overlay">
+        <div class="modal" style="max-width:600px;">
+            <div class="modal-header"><h3>編輯出車</h3><button class="modal-close" onclick="document.getElementById('edit-dispatch-modal').style.display='none'">&times;</button></div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-dispatch-id">
+                <div class="form-grid">
+                    <div class="form-group"><label>日期</label><input type="date" id="edit-dispatch-date"></div>
+                    <div class="form-group"><label>工程代號</label><input type="text" id="edit-dispatch-project"></div>
+                    <div class="form-group"><label>車號/司機</label><input type="text" id="edit-dispatch-truck"></div>
+                    <div class="form-group"><label>配比(PSI 或代號)</label><input type="text" id="edit-dispatch-mix"></div>
+                    <div class="form-group"><label>載量(m³)</label><input type="number" step="0.1" id="edit-dispatch-load"></div>
+                    <div class="form-group"><label>距離(km)</label><input type="number" step="0.1" id="edit-dispatch-distance"></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="document.getElementById('edit-dispatch-modal').style.display='none'">取消</button><button class="btn btn-success" onclick="saveDispatchEdit()">儲存</button></div>
+        </div>
+    </div>
+
     <script>
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('summary-date').value = today;
@@ -1493,6 +1719,7 @@ def get_main_page_html():
                 document.getElementById('stat-trips').textContent = data.summary.total_trips;
                 document.getElementById('stat-m3').textContent = data.summary.total_m3.toFixed(1) + ' m³';
                 document.getElementById('stat-revenue').textContent = '$' + data.summary.total_revenue.toLocaleString();
+                document.getElementById('stat-cost').textContent = '$' + data.summary.total_cost.toLocaleString();
                 document.getElementById('stat-profit').textContent = '$' + data.summary.gross_profit.toLocaleString();
             } catch(e) {
                 console.log('No data for selected range');
@@ -1573,6 +1800,10 @@ def get_main_page_html():
             if (project) url += `&project_code=${project}`;
 
             const data = await fetch(url).then(r => r.json());
+            const params = new URLSearchParams({ start_date: start, end_date: end });
+            if (project) params.append('project_code', project);
+            const dispatches = await fetch(`/api/dispatches?${params.toString()}`).then(r => r.json());
+            const financials = await fetch(`/api/reports/daily?${params.toString()}`).then(r => r.json());
 
             const totals = { trips: 0, m3: 0 };
             data.forEach(d => {
@@ -1592,6 +1823,44 @@ def get_main_page_html():
                                 <td>${d.psi || '-'}</td>
                                 <td>${d.total_m3.toFixed(1)}</td>
                                 <td>${d.trips}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                <h3 style="margin-top:20px;">💰 收入/成本/毛利</h3>
+                <table>
+                    <thead><tr><th>工程</th><th>車次</th><th>總量(m³)</th><th>收入</th><th>成本</th><th>毛利</th></tr></thead>
+                    <tbody>
+                        ${Object.entries(financials.financials.projects || {}).map(([code, p]) => `
+                            <tr>
+                                <td>${p.project_name} (${code})<div style="font-size:11px;color:#666;">${p.formulas.revenue}<br>${p.formulas.material}<br>${p.formulas.driver}<br>${p.formulas.gross_profit}</div></td>
+                                <td>${p.trips}</td>
+                                <td>${p.m3}</td>
+                                <td>$${p.revenue.toLocaleString()}</td>
+                                <td>$${p.total_cost.toLocaleString()}</td>
+                                <td>$${p.gross_profit.toLocaleString()}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+
+            document.getElementById('dispatch-list').innerHTML = `
+                <h3 style="margin:20px 0 10px;">🚚 出貨明細 (可編輯/刪除)</h3>
+                <table>
+                    <thead><tr><th>日期</th><th>工程</th><th>車號</th><th>載量</th><th>單價</th><th>收入</th><th>成本</th><th>毛利</th><th>操作</th></tr></thead>
+                    <tbody>
+                        ${dispatches.map(d => `
+                            <tr>
+                                <td>${d.date}</td>
+                                <td>${d.project_name}</td>
+                                <td>${d.truck_plate}</td>
+                                <td>${d.load_m3} m³</td>
+                                <td>${d.price_per_m3 || 0}</td>
+                                <td>$${(d.total_revenue || 0).toLocaleString()}</td>
+                                <td>$${(d.total_cost || 0).toLocaleString()}</td>
+                                <td>$${(d.gross_profit || 0).toLocaleString()}</td>
+                                <td><button class="btn btn-secondary btn-sm" onclick='openDispatchEditor(${JSON.stringify(d)})'>編輯</button> <button class="btn btn-danger btn-sm" onclick="removeDispatch(${d.id})">刪除</button></td>
                             </tr>
                         `).join('')}
                     </tbody>

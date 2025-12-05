@@ -267,7 +267,7 @@ class DispatchCalculator:
         fuel_price: Optional[float] = None,
         dispatch_date: Optional[date] = None,
         include_current_trip: bool = False,
-        ) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
         """
         計算所有成本
         
@@ -393,7 +393,7 @@ class DispatchCalculator:
         project: Project,
         load_m3: float,
         price_per_m3: float
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
         計算收入（含短少補貼）
         
