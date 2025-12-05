@@ -235,7 +235,9 @@ class ProjectPrice(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     mix_id = Column(Integer, ForeignKey("mixes.id"), nullable=False)
     
-    # 單價
+    # 單價與載運區間
+    load_min_m3 = Column(Float, nullable=True, comment="適用最小載量 m³")
+    load_max_m3 = Column(Float, nullable=True, comment="適用最大載量 m³")
     price_per_m3 = Column(Float, nullable=False, comment="單價 $/m³")
     
     # 生效期間（可選，用於價格調整）
@@ -252,12 +254,18 @@ class ProjectPrice(Base):
     
     # 唯一約束：同一工程+配比+生效期間只能有一筆
     __table_args__ = (
-        UniqueConstraint('project_id', 'mix_id', 'effective_from', name='uq_project_mix_date'),
+        UniqueConstraint(
+            'project_id', 'mix_id', 'effective_from', 'load_min_m3', 'load_max_m3',
+            name='uq_project_mix_date_load'
+        ),
         Index('ix_project_price_lookup', 'project_id', 'mix_id', 'is_active'),
     )
     
     def __repr__(self):
-        return f"<ProjectPrice project={self.project_id} mix={self.mix_id} ${self.price_per_m3}/m³>"
+        return (
+            f"<ProjectPrice project={self.project_id} mix={self.mix_id} "
+            f"load>={self.load_min_m3 or '-'} to {self.load_max_m3 or '-'} ${self.price_per_m3}/m³>"
+        )
 
 
 # ============================================================
@@ -439,6 +447,20 @@ class DriverAttendance(Base):
 def init_db():
     """建立所有資料表"""
     Base.metadata.create_all(bind=engine)
+    _ensure_project_price_load_columns()
+
+
+def _ensure_project_price_load_columns():
+    """確保 project_prices 表含有載量區間欄位（向後相容）。"""
+    with engine.connect() as conn:
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(project_prices)")}
+        alters = []
+        if "load_min_m3" not in existing_cols:
+            alters.append("ALTER TABLE project_prices ADD COLUMN load_min_m3 REAL")
+        if "load_max_m3" not in existing_cols:
+            alters.append("ALTER TABLE project_prices ADD COLUMN load_max_m3 REAL")
+        for stmt in alters:
+            conn.execute(stmt)
 
 
 def get_db():

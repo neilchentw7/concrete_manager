@@ -226,9 +226,8 @@ class DispatchCalculator:
     # 單價查詢
     # ========================================
     
-    def get_price(self, project: Project, mix: Mix, dispatch_date: date) -> float:
-        """取得單價"""
-        # 查詢有效的價格
+    def get_price(self, project: Project, mix: Mix, dispatch_date: date, load_m3: float) -> float:
+        """取得單價，若有載運區間則依載量匹配。"""
         price = (
             self.db.query(ProjectPrice)
             .filter(
@@ -242,15 +241,22 @@ class DispatchCalculator:
                 or_(
                     ProjectPrice.effective_to == None,
                     ProjectPrice.effective_to >= dispatch_date
-                )
+                ),
+                or_(ProjectPrice.load_min_m3 == None, ProjectPrice.load_min_m3 <= load_m3),
+                or_(ProjectPrice.load_max_m3 == None, ProjectPrice.load_max_m3 >= load_m3)
             )
-            .order_by(ProjectPrice.effective_from.desc())
+            .order_by(
+                ProjectPrice.load_min_m3.desc().nulls_last(),
+                ProjectPrice.effective_from.desc().nulls_last()
+            )
             .first()
         )
-        
+
         if not price:
-            raise ValueError(f"找不到單價：工程={project.code}, 配比={mix.code}")
-        
+            raise ValueError(
+                f"找不到單價：工程={project.code}, 配比={mix.code}, 載量={load_m3}m³"
+            )
+
         return price.price_per_m3
     
     # ========================================
@@ -506,7 +512,7 @@ class DispatchCalculator:
             fuel_price = self.get_fuel_price()
         
         # 7. 查詢單價
-        price_per_m3 = self.get_price(project, mix, dispatch_date)
+        price_per_m3 = self.get_price(project, mix, dispatch_date, load_m3)
         
         # 8. 計算收入
         revenue_calc = self.calculate_revenue(project, load_m3, price_per_m3)
@@ -608,7 +614,7 @@ class DispatchCalculator:
                 distance_km = project.default_distance_km or 10.0
             
             fuel_price = self.get_fuel_price()
-            price_per_m3 = self.get_price(project, mix, dispatch_date)
+            price_per_m3 = self.get_price(project, mix, dispatch_date, load_m3)
             
             revenue_calc = self.calculate_revenue(project, load_m3, price_per_m3)
             cost_calc = self.calculate_costs(

@@ -120,7 +120,7 @@
                 <div class="page-header"><h2>工程單價</h2><button class="btn btn-primary" onclick="openPriceModal()">➕ 新增單價</button></div>
                 <div class="card">
                     <div class="search-box"><select id="price-project-filter" onchange="loadPrices()"><option value="">-- 全部工程 --</option></select></div>
-                    <div class="table-wrapper"><table><thead><tr><th>工程</th><th>配比</th><th class="num">單價/m³</th><th>生效日</th><th>狀態</th><th>操作</th></tr></thead><tbody id="prices-table"></tbody></table></div>
+                    <div class="table-wrapper"><table><thead><tr><th>工程</th><th>配比</th><th>載運區間</th><th class="num">單價/m³</th><th>生效日</th><th>狀態</th><th>操作</th></tr></thead><tbody id="prices-table"></tbody></table></div>
                 </div>
             </div>
             
@@ -252,6 +252,8 @@
                 <div class="form-grid">
                     <div class="form-group"><label>工程 *</label><select id="price-project"></select></div>
                     <div class="form-group"><label>配比 *</label><select id="price-mix"></select></div>
+                    <div class="form-group"><label>載量下限 (m³)</label><input type="number" id="price-load-min" step="0.1" placeholder="不限"></div>
+                    <div class="form-group"><label>載量上限 (m³)</label><input type="number" id="price-load-max" step="0.1" placeholder="不限"></div>
                     <div class="form-group"><label>單價 (元/m³) *</label><input type="number" id="price-amount" step="0.01"></div>
                     <div class="form-group"><label>生效日期</label><input type="date" id="price-effective-from"></div>
                 </div>
@@ -266,12 +268,16 @@
         
         document.querySelectorAll('.sidebar-item').forEach(item => {
             item.addEventListener('click', () => {
-                document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
-                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-                item.classList.add('active');
-                document.getElementById('page-' + item.dataset.page).classList.add('active');
+                setActivePage(item.dataset.page);
             });
         });
+
+        function setActivePage(page){
+            document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+            document.querySelector(`.sidebar-item[data-page="${page}"]`)?.classList.add('active');
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById('page-' + page)?.classList.add('active');
+        }
         
         function showToast(msg, type='success') {
             const t = document.createElement('div');
@@ -292,7 +298,7 @@
             document.getElementById('price-project').innerHTML = projectsData.filter(p=>p.is_active).map(p=>`<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
         }
         function renderProjects(data) {
-            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button><button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">刪除</button></td></tr>`).join('');
+            document.getElementById('projects-table').innerHTML = data.map(p=>`<tr><td><strong>${p.code}</strong></td><td>${p.name}</td><td class="num">${p.default_distance_km} km</td><td class="num">${p.subsidy_threshold_m3} m³</td><td class="num">$${p.subsidy_amount}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editProject(${p.id})">編輯</button><button class="btn btn-sm btn-primary" onclick="manageProjectPrice(${p.id})">單價</button><button class="btn btn-sm ${p.is_active?'btn-danger':'btn-success'}" onclick="toggleProject(${p.id},${!p.is_active})">${p.is_active?'停用':'啟用'}</button><button class="btn btn-sm btn-danger" onclick="deleteProject(${p.id})">刪除</button></td></tr>`).join('');
         }
         function filterProjects() { const k=document.getElementById('project-search').value.toLowerCase(); renderProjects(projectsData.filter(p=>p.code.toLowerCase().includes(k)||p.name.toLowerCase().includes(k))); }
         function openProjectModal(p=null) {
@@ -451,21 +457,42 @@
         
         // 單價
         async function loadPrices() { const pid=document.getElementById('price-project-filter').value; const res=await fetch(`${API}/api/prices${pid?`?project_id=${pid}`:''}`); pricesData=await res.json(); renderPrices(pricesData); }
-        function renderPrices(data) { document.getElementById('prices-table').innerHTML = data.map(p=>`<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deletePrice(${p.id})">刪除</button></td></tr>`).join(''); }
+        function renderPrices(data) {
+            document.getElementById('prices-table').innerHTML = data.map(p=>{
+                const range = (p.load_min_m3||p.load_max_m3)?`${p.load_min_m3??'-'} ~ ${p.load_max_m3??'以上'}`:'不限';
+                return `<tr><td>${p.project_name||p.project_code}</td><td>${p.mix_psi} PSI</td><td>${range}</td><td class="num"><strong>$${p.price_per_m3.toFixed(2)}</strong></td><td>${p.effective_from||'-'}</td><td><span class="badge ${p.is_active?'badge-success':'badge-danger'}">${p.is_active?'啟用':'停用'}</span></td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editPrice(${p.id})">編輯</button><button class="btn btn-sm btn-danger" onclick="deletePrice(${p.id})">刪除</button></td></tr>`;
+            }).join('');
+        }
         function openPriceModal(p=null) {
             document.getElementById('price-modal-title').textContent = p?'編輯單價':'新增單價';
             document.getElementById('price-id').value = p?.id||'';
-            document.getElementById('price-project').value = p?.project_id||projectsData[0]?.id||'';
+            document.getElementById('price-project').value = p?.project_id||document.getElementById('price-project-filter').value||projectsData[0]?.id||'';
             document.getElementById('price-mix').value = p?.mix_id||mixesData[0]?.id||'';
+            document.getElementById('price-load-min').value = p?.load_min_m3??'';
+            document.getElementById('price-load-max').value = p?.load_max_m3??'';
             document.getElementById('price-amount').value = p?.price_per_m3||'';
             document.getElementById('price-effective-from').value = p?.effective_from||new Date().toISOString().split('T')[0];
             document.getElementById('price-modal').classList.add('show');
         }
         async function editPrice(id) { openPriceModal(pricesData.find(p=>p.id===id)); }
         async function savePrice() {
-            const data={project_id:parseInt(document.getElementById('price-project').value),mix_id:parseInt(document.getElementById('price-mix').value),price_per_m3:parseFloat(document.getElementById('price-amount').value),effective_from:document.getElementById('price-effective-from').value||null};
+            const minVal=document.getElementById('price-load-min').value, maxVal=document.getElementById('price-load-max').value;
+            const data={
+                project_id:parseInt(document.getElementById('price-project').value),
+                mix_id:parseInt(document.getElementById('price-mix').value),
+                load_min_m3:minVal===''?null:parseFloat(minVal),
+                load_max_m3:maxVal===''?null:parseFloat(maxVal),
+                price_per_m3:parseFloat(document.getElementById('price-amount').value),
+                effective_from:document.getElementById('price-effective-from').value||null
+            };
             const res=await fetch(`${API}/api/prices`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
             if(res.ok){showToast('已儲存');closeModal('price-modal');loadPrices();}else{showToast((await res.json()).detail||'失敗','error');}
+        }
+        function manageProjectPrice(projectId){
+            setActivePage('prices');
+            document.getElementById('price-project-filter').value=projectId;
+            loadPrices();
+            openPriceModal({project_id:projectId});
         }
         async function deletePrice(id) {
             if(!confirm('確認刪除此單價？')) return;

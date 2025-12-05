@@ -153,6 +153,8 @@ class MixResponse(BaseModel):
 class PriceCreate(BaseModel):
     project_id: int
     mix_id: int
+    load_min_m3: Optional[float] = None
+    load_max_m3: Optional[float] = None
     price_per_m3: float
     effective_from: Optional[date] = None
     effective_to: Optional[date] = None
@@ -692,6 +694,8 @@ def list_prices(
         "project_name": p.project.name,
         "mix_code": p.mix.code,
         "mix_psi": p.mix.psi,
+        "load_min_m3": p.load_min_m3,
+        "load_max_m3": p.load_max_m3,
         "price_per_m3": p.price_per_m3,
         "effective_from": str(p.effective_from) if p.effective_from else None,
         "effective_to": str(p.effective_to) if p.effective_to else None,
@@ -701,17 +705,44 @@ def list_prices(
 @app.post("/api/prices")
 def create_price(data: PriceCreate, db: Session = Depends(get_db)):
     """新增/更新單價"""
+    if data.load_min_m3 and data.load_max_m3 and data.load_min_m3 > data.load_max_m3:
+        raise HTTPException(400, "載量區間不正確：最小值不可大於最大值")
+
     # 檢查是否已有相同的設定
     existing = db.query(ProjectPrice).filter(
         ProjectPrice.project_id == data.project_id,
         ProjectPrice.mix_id == data.mix_id,
         ProjectPrice.effective_from == data.effective_from,
+        ProjectPrice.load_min_m3 == data.load_min_m3,
+        ProjectPrice.load_max_m3 == data.load_max_m3,
         ProjectPrice.is_active == True
     ).first()
-    
+
+    # 避免重疊區間
+    existing_id = existing.id if existing else 0
+    overlap = db.query(ProjectPrice).filter(
+        ProjectPrice.project_id == data.project_id,
+        ProjectPrice.mix_id == data.mix_id,
+        ProjectPrice.is_active == True,
+        ProjectPrice.id != existing_id,
+        or_(ProjectPrice.effective_from == None, ProjectPrice.effective_from == data.effective_from),
+        or_(
+            and_(data.load_min_m3 == None, data.load_max_m3 == None),
+            and_(
+                or_(ProjectPrice.load_min_m3 == None, ProjectPrice.load_min_m3 <= (data.load_max_m3 or 999)),
+                or_(ProjectPrice.load_max_m3 == None, ProjectPrice.load_max_m3 >= (data.load_min_m3 or 0))
+            )
+        )
+    ).first()
+
+    if overlap and not existing:
+        raise HTTPException(400, "載量區間與現有設定重疊，請調整後再試")
+
     if existing:
         existing.price_per_m3 = data.price_per_m3
         existing.effective_to = data.effective_to
+        existing.load_min_m3 = data.load_min_m3
+        existing.load_max_m3 = data.load_max_m3
     else:
         price = ProjectPrice(**data.model_dump())
         db.add(price)
@@ -903,7 +934,7 @@ def update_dispatch(dispatch_id: int, data: DispatchUpdate, db: Session = Depend
     load_m3 = data.load_m3 if data.load_m3 is not None else dispatch.load_m3
     distance_km = data.distance_km if data.distance_km is not None else (dispatch.distance_km or project.default_distance_km or 0)
 
-    price_per_m3 = calc.get_price(project, mix, dispatch_date)
+    price_per_m3 = calc.get_price(project, mix, dispatch_date, load_m3)
     revenue_calc = calc.calculate_revenue(project, load_m3, price_per_m3)
     cost_calc = calc.calculate_costs(
         project,
@@ -1113,7 +1144,8 @@ def compute_financials(db: Session, start_dt: date, end_dt: date, dispatches: Li
         if mix:
             project_stats[s.project.code]["material_volume_cost"] += (s.total_m3 or 0) * (mix.material_cost_per_m3 or 0)
             try:
-                price = calc.get_price(s.project, mix, s.date)
+                avg_load = (s.total_m3 or 0) / (s.trips or 1)
+                price = calc.get_price(s.project, mix, s.date, avg_load)
                 project_stats[s.project.code]["price_volume"] += (s.total_m3 or 0) * price
             except Exception:
                 pass
