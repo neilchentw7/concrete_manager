@@ -25,7 +25,7 @@ import io
 from models import (
     init_db, get_db, SessionLocal, init_default_settings,
     Project, Mix, Truck, ProjectPrice, Dispatch, Setting, MaterialPrice,
-    DailySummary
+    DailySummary, DriverAttendance
 )
 from calculator import DispatchCalculator
 
@@ -166,6 +166,23 @@ class SettingResponse(BaseModel):
 
 class SettingUpdate(BaseModel):
     value: str
+
+
+# --- 司機出勤 ---
+class DriverAttendanceCreate(BaseModel):
+    date: date
+    driver_count: int = Field(..., ge=0)
+    note: Optional[str] = None
+
+
+class DriverAttendanceResponse(BaseModel):
+    id: int
+    date: date
+    driver_count: int
+    note: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 # --- 出車 ---
 class DispatchItem(BaseModel):
@@ -1036,8 +1053,13 @@ def compute_financials(db: Session, start_dt: date, end_dt: date, dispatches: Li
     driver_salary_setting = db.query(Setting).filter(Setting.key == "driver_daily_salary").first()
     driver_count_setting = db.query(Setting).filter(Setting.key == "driver_count").first()
     driver_daily_salary = float(driver_salary_setting.value) if driver_salary_setting else 0.0
-    driver_count = int(float(driver_count_setting.value)) if driver_count_setting else 0
-    total_driver_salary = driver_daily_salary * driver_count
+    default_driver_count = int(float(driver_count_setting.value)) if driver_count_setting else 0
+
+    attendance_records = db.query(DriverAttendance).filter(
+        DriverAttendance.date >= start_dt,
+        DriverAttendance.date <= end_dt
+    ).all()
+    driver_count_by_date = {a.date: a.driver_count for a in attendance_records}
 
     calc = DispatchCalculator(db)
 
@@ -1098,6 +1120,8 @@ def compute_financials(db: Session, start_dt: date, end_dt: date, dispatches: Li
 
     # 按日期計算司機分攤
     for day, total_trips in trips_by_date.items():
+        driver_count = driver_count_by_date.get(day, default_driver_count)
+        total_driver_salary = driver_daily_salary * driver_count
         if total_trips <= 0 or total_driver_salary <= 0:
             continue
         per_trip = total_driver_salary / total_trips
@@ -1120,6 +1144,19 @@ def compute_financials(db: Session, start_dt: date, end_dt: date, dispatches: Li
     }
 
     project_formatted = {}
+    driver_formula_summary = "未設定司機薪資"
+    if driver_daily_salary > 0:
+        attendance_descriptions = [
+            f"{d.isoformat()}: {driver_count_by_date.get(d, default_driver_count)} 人 / {trips_by_date[d]} 趟"
+            for d in sorted(trips_by_date.keys())
+            if trips_by_date[d] > 0
+        ]
+        attendance_hint = "；".join(attendance_descriptions)
+        driver_formula_summary = (
+            f"日薪 {round(driver_daily_salary,2)}，每日出勤人數(未填時以 {default_driver_count} 人計)按當日車次平均分攤"
+        )
+        if attendance_hint:
+            driver_formula_summary += f"；{attendance_hint}"
     for code, stat in project_stats.items():
         avg_load = (stat["m3"] / stat["trips"]) if stat["trips"] else 0
         avg_price = (stat["price_volume"] / stat["m3"]) if stat["m3"] else 0
@@ -1145,7 +1182,7 @@ def compute_financials(db: Session, start_dt: date, end_dt: date, dispatches: Li
             "formulas": {
                 "revenue": f"(總量 {round(stat['m3'],2)} ÷ 車次 {stat['trips']}) × 單價 {round(avg_price,2)} × 車次 {stat['trips']} = {round(revenue,2)}",
                 "material": f"總量 {round(stat['m3'],2)} × 材料成本/m³ {round((stat['material_volume_cost']/stat['m3']) if stat['m3'] else 0,2)} = {round(material_cost,2)}",
-                "driver": f"(日薪 {round(driver_daily_salary,2)} × 司機 {driver_count} 人 ÷ 全部車次 {sum(trips_by_date.values()) or 1}) × 該工程車次 {stat['trips']} ≈ {round(driver_cost,2)}" if total_driver_salary > 0 else "未設定司機薪資",
+                "driver": driver_formula_summary if driver_daily_salary > 0 else "未設定司機薪資",
                 "gross_profit": f"收入 {round(revenue,2)} - 成本 {round(total_cost,2)} = {round(profit,2)}"
             }
         }
@@ -1364,6 +1401,62 @@ def update_setting(key: str, data: SettingUpdate, db: Session = Depends(get_db))
 
     db.commit()
     return {"status": "ok", "key": key, "value": setting.value}
+
+
+# ============================================================
+# 司機出勤 API
+# ============================================================
+
+
+@app.get("/api/driver-attendance", response_model=List[DriverAttendanceResponse])
+def list_driver_attendance(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(DriverAttendance)
+    if start_date:
+        query = query.filter(DriverAttendance.date >= date.fromisoformat(start_date))
+    if end_date:
+        query = query.filter(DriverAttendance.date <= date.fromisoformat(end_date))
+
+    records = query.order_by(DriverAttendance.date.desc()).all()
+    return records
+
+
+@app.post("/api/driver-attendance", response_model=DriverAttendanceResponse)
+def upsert_driver_attendance(data: DriverAttendanceCreate, db: Session = Depends(get_db)):
+    record = db.query(DriverAttendance).filter(DriverAttendance.date == data.date).first()
+    if record:
+        record.driver_count = data.driver_count
+        record.note = data.note
+    else:
+        record = DriverAttendance(
+            date=data.date,
+            driver_count=data.driver_count,
+            note=data.note
+        )
+        db.add(record)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@app.delete("/api/driver-attendance/{day}")
+def delete_driver_attendance(day: str, db: Session = Depends(get_db)):
+    try:
+        target_date = date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式錯誤，請使用 YYYY-MM-DD")
+
+    record = db.query(DriverAttendance).filter(DriverAttendance.date == target_date).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="找不到該日期的出勤紀錄")
+
+    db.delete(record)
+    db.commit()
+    return {"status": "deleted", "date": target_date.isoformat()}
 
 
 # ============================================================

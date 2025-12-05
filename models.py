@@ -416,6 +416,23 @@ class DailySummary(Base):
 
 
 # ============================================================
+# 7. 司機出勤 (DriverAttendance)
+# ============================================================
+
+class DriverAttendance(Base):
+    """記錄每日實際出勤司機人數。"""
+
+    __tablename__ = "driver_attendance"
+
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, unique=True, nullable=False, index=True)
+    driver_count = Column(Integer, nullable=False, default=0, comment="出勤司機人數")
+    note = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# ============================================================
 # Database Initialization
 # ============================================================
 

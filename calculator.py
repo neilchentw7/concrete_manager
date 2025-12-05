@@ -16,7 +16,7 @@ import re
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, func
 
-from models import Project, Mix, Truck, ProjectPrice, Dispatch, Setting, DailySummary
+from models import Project, Mix, Truck, ProjectPrice, Dispatch, Setting, DailySummary, DriverAttendance
 
 
 class DispatchCalculator:
@@ -337,7 +337,13 @@ class DispatchCalculator:
         """根據當日總車次平均分攤司機成本並回傳詳細公式。"""
 
         driver_daily_salary = float(self.get_setting("driver_daily_salary", "0") or 0)
-        driver_count = int(float(self.get_setting("driver_count", "0") or 0))
+        default_driver_count = int(float(self.get_setting("driver_count", "0") or 0))
+        attendance_count = (
+            self.db.query(DriverAttendance.driver_count)
+            .filter(DriverAttendance.date == dispatch_date)
+            .scalar()
+        )
+        driver_count = int(attendance_count) if attendance_count is not None else default_driver_count
 
         total_salary = driver_daily_salary * driver_count
         if total_salary <= 0:

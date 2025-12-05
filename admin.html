@@ -132,9 +132,19 @@
                         <div class="form-group"><label>預設強度 (PSI)</label><input type="number" id="setting-default_psi"></div>
                         <div class="form-group"><label>預設載量 (m³)</label><input type="number" id="setting-default_load_m3" step="0.1"></div>
                         <div class="form-group"><label>司機每日薪資 (元)</label><input type="number" id="setting-driver_daily_salary" step="1"></div>
-                        <div class="form-group"><label>出勤司機人數</label><input type="number" id="setting-driver_count" step="1"></div>
+                        <div class="form-group"><label>預設司機人數</label><input type="number" id="setting-driver_count" step="1"></div>
                     </div>
                     <div style="margin-top: 25px;"><button class="btn btn-success" onclick="saveSettings()">💾 儲存設定</button></div>
+                </div>
+                <div class="card" style="margin-top:20px;">
+                    <h3 style="margin-bottom:15px;">每日司機出勤</h3>
+                    <div class="form-grid">
+                        <div class="form-group"><label>日期</label><input type="date" id="attendance-date"></div>
+                        <div class="form-group"><label>出勤司機人數</label><input type="number" id="attendance-count" step="1" min="0"></div>
+                        <div class="form-group" style="grid-column:1/-1;"><label>備註</label><input type="text" id="attendance-note" placeholder="如：請假 2 人"></div>
+                    </div>
+                    <div style="margin:15px 0;"><button class="btn btn-primary" onclick="saveAttendance()">➕ 新增 / 更新</button></div>
+                    <div class="table-wrapper"><table><thead><tr><th>日期</th><th>出勤司機人數</th><th>備註</th><th>操作</th></tr></thead><tbody id="attendance-table"></tbody></table></div>
                 </div>
             </div>
         </main>
@@ -466,9 +476,44 @@
         // 設定
         async function loadSettings() { const res=await fetch(`${API}/api/settings`); (await res.json()).forEach(s=>{const el=document.getElementById(`setting-${s.key}`);if(el)el.value=s.value;}); }
         async function saveSettings() { for(const k of['fuel_price','default_psi','default_load_m3','driver_daily_salary','driver_count'])await fetch(`${API}/api/settings/${k}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({value:document.getElementById(`setting-${k}`).value})}); showToast('設定已儲存'); }
-        
+
+        // 司機出勤
+        let attendanceData=[];
+        function resetAttendanceForm(){
+            document.getElementById('attendance-date').value=new Date().toISOString().split('T')[0];
+            document.getElementById('attendance-count').value='';
+            document.getElementById('attendance-note').value='';
+        }
+        async function loadAttendance(){
+            const res=await fetch(`${API}/api/driver-attendance`);
+            attendanceData=await res.json();
+            renderAttendance();
+            if(!document.getElementById('attendance-date').value)resetAttendanceForm();
+        }
+        function renderAttendance(){
+            const body=document.getElementById('attendance-table');
+            if(!attendanceData.length){body.innerHTML='<tr><td colspan="4" style="text-align:center;color:#777;">尚無出勤紀錄</td></tr>';return;}
+            body.innerHTML=attendanceData.map(a=>`<tr><td>${a.date}</td><td class="num">${a.driver_count}</td><td>${a.note||''}</td><td class="action-btns"><button class="btn btn-sm btn-secondary" onclick="editAttendance('${a.date}')">編輯</button><button class="btn btn-sm btn-danger" onclick="deleteAttendance('${a.date}')">刪除</button></td></tr>`).join('');
+        }
+        async function saveAttendance(){
+            const payload={date:document.getElementById('attendance-date').value,driver_count:parseInt(document.getElementById('attendance-count').value||'0'),note:document.getElementById('attendance-note').value||null};
+            const res=await fetch(`${API}/api/driver-attendance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+            if(res.ok){showToast('出勤人數已更新');resetAttendanceForm();await loadAttendance();}else{showToast((await res.json()).detail||'儲存失敗','error');}
+        }
+        function editAttendance(date){
+            const rec=attendanceData.find(a=>a.date===date);if(!rec)return;
+            document.getElementById('attendance-date').value=rec.date;
+            document.getElementById('attendance-count').value=rec.driver_count;
+            document.getElementById('attendance-note').value=rec.note||'';
+        }
+        async function deleteAttendance(date){
+            if(!confirm('確認刪除此日期的出勤紀錄？'))return;
+            const res=await fetch(`${API}/api/driver-attendance/${date}`,{method:'DELETE'});
+            if(res.ok){showToast('已刪除');await loadAttendance();}else{showToast((await res.json()).detail||'刪除失敗','error');}
+        }
+
         // 初始化
-        (async()=>{await loadMaterials();await loadProjects();await loadTrucks();await loadMixes();await loadPrices();await loadSettings();})();
+        (async()=>{await loadMaterials();await loadProjects();await loadTrucks();await loadMixes();await loadPrices();await loadSettings();resetAttendanceForm();await loadAttendance();})();
     </script>
 </body>
 </html>
