@@ -803,12 +803,51 @@ def list_dispatches(
         "revenue": d.revenue,
         "subsidy": d.subsidy,
         "total_revenue": d.total_revenue,
+        "revenue_details": {
+            "base": {
+                "load_m3": d.load_m3,
+                "price_per_m3": round(d.price_per_m3 or 0, 2),
+                "formula": f"{d.load_m3} m³ × {round(d.price_per_m3 or 0, 2)} = {round((d.load_m3 or 0) * (d.price_per_m3 or 0), 2)}",
+                "amount": round(d.revenue or 0, 2)
+            },
+            "subsidy": {
+                "threshold_m3": d.project.subsidy_threshold_m3,
+                "subsidy_amount": round(d.subsidy or 0, 2),
+                "applied": (d.subsidy or 0) > 0,
+                "formula": f"補貼 {round(d.subsidy or 0, 2)}" if (d.subsidy or 0) > 0 else "未達補貼條件",
+                "amount": round(d.subsidy or 0, 2)
+            },
+            "total_formula": f"{round(d.revenue or 0, 2)} + {round(d.subsidy or 0, 2)} = {round(d.total_revenue or 0, 2)}"
+        },
         "material_cost": d.material_cost,
         "fuel_cost": d.fuel_cost,
         "driver_cost": d.driver_cost,
         "total_cost": d.total_cost,
+        "cost_details": {
+            "material": {
+                "load_m3": d.load_m3,
+                "cost_per_m3": round((d.material_cost / d.load_m3) if d.load_m3 else 0, 2),
+                "formula": f"{d.load_m3} m³ × {round((d.material_cost / d.load_m3) if d.load_m3 else 0, 2)} = {round(d.material_cost or 0, 2)}",
+                "amount": round(d.material_cost or 0, 2)
+            },
+            "fuel": {
+                "distance_round_trip_km": round(d.distance_km * 2, 2),
+                "fuel_l_per_km": round(d.truck.fuel_l_per_km or 0.5, 2),
+                "fuel_price": round(d.fuel_price or 0, 2),
+                "formula": f"{round(d.distance_km * 2, 2)} km × {round(d.truck.fuel_l_per_km or 0.5, 2)} L/km × {round(d.fuel_price or 0, 2)} = {round(d.fuel_cost or 0, 2)}",
+                "amount": round(d.fuel_cost or 0, 2)
+            },
+            "driver": {
+                "method": "recorded",
+                "per_trip_rate": round(d.driver_cost or 0, 2),
+                "formula": f"已紀錄每趟 {round(d.driver_cost or 0, 2)} 元",
+                "amount": round(d.driver_cost or 0, 2)
+            },
+            "total_formula": f"{round(d.material_cost or 0, 2)} + {round(d.fuel_cost or 0, 2)} + {round(d.driver_cost or 0, 2)} = {round(d.total_cost or 0, 2)}"
+        },
         "gross_profit": d.gross_profit,
         "profit_margin": d.profit_margin,
+        "gross_profit_formula": f"{round(d.total_revenue or 0, 2)} - {round(d.total_cost or 0, 2)} = {round(d.gross_profit or 0, 2)}",
     } for d in dispatches]
 
 

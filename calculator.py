@@ -267,7 +267,7 @@ class DispatchCalculator:
         fuel_price: Optional[float] = None,
         dispatch_date: Optional[date] = None,
         include_current_trip: bool = False,
-    ) -> Dict[str, float]:
+        ) -> Dict[str, Any]:
         """
         計算所有成本
         
@@ -276,7 +276,8 @@ class DispatchCalculator:
                 "material_cost": 材料成本,
                 "fuel_cost": 油料成本,
                 "driver_cost": 司機成本,
-                "total_cost": 總成本
+                "total_cost": 總成本,
+                "details": {"material": {...}, "fuel": {...}, "driver": {...}, "total_formula": str}
             }
         """
         if fuel_price is None:
@@ -284,14 +285,38 @@ class DispatchCalculator:
         
         # 材料成本 = 載量 × 每 m³ 材料成本
         material_cost = load_m3 * (mix.material_cost_per_m3 or 0)
-        
+        material_detail = {
+            "load_m3": load_m3,
+            "cost_per_m3": round(mix.material_cost_per_m3 or 0, 2),
+            "formula": f"{load_m3} m³ × {round(mix.material_cost_per_m3 or 0, 2)} = {round(material_cost, 2)}",
+            "amount": round(material_cost, 2)
+        }
+
         # 油料成本 = 距離(來回) × 油耗 × 油價
         fuel_cost = (distance_km * 2) * (truck.fuel_l_per_km or 0.5) * fuel_price
+        fuel_detail = {
+            "distance_round_trip_km": round(distance_km * 2, 2),
+            "fuel_l_per_km": round(truck.fuel_l_per_km or 0.5, 2),
+            "fuel_price": round(fuel_price, 2),
+            "formula": f"{round(distance_km * 2, 2)} km × {round(truck.fuel_l_per_km or 0.5, 2)} L/km × {round(fuel_price, 2)} = {round(fuel_cost, 2)}",
+            "amount": round(fuel_cost, 2)
+        }
 
         # 司機成本
         driver_cost = truck.driver_pay_per_trip or 800.0
         if dispatch_date:
-            driver_cost = self.calculate_driver_cost(dispatch_date, include_current_trip, default_per_trip=driver_cost)
+            driver_cost, driver_detail = self.calculate_driver_cost(
+                dispatch_date,
+                include_current_trip,
+                default_per_trip=driver_cost
+            )
+        else:
+            driver_detail = {
+                "method": "per_trip",
+                "per_trip_rate": round(driver_cost, 2),
+                "formula": f"固定每趟 {round(driver_cost, 2)} 元",
+                "amount": round(driver_cost, 2)
+            }
         
         total_cost = material_cost + fuel_cost + driver_cost
         
@@ -299,18 +324,29 @@ class DispatchCalculator:
             "material_cost": round(material_cost, 2),
             "fuel_cost": round(fuel_cost, 2),
             "driver_cost": round(driver_cost, 2),
-            "total_cost": round(total_cost, 2)
+            "total_cost": round(total_cost, 2),
+            "details": {
+                "material": material_detail,
+                "fuel": fuel_detail,
+                "driver": driver_detail,
+                "total_formula": f"{round(material_cost, 2)} + {round(fuel_cost, 2)} + {round(driver_cost, 2)} = {round(total_cost, 2)}"
+            }
         }
 
-    def calculate_driver_cost(self, dispatch_date: date, include_current_trip: bool, default_per_trip: float) -> float:
-        """根據當日總車次平均分攤司機成本。"""
+    def calculate_driver_cost(self, dispatch_date: date, include_current_trip: bool, default_per_trip: float) -> tuple[float, Dict[str, Any]]:
+        """根據當日總車次平均分攤司機成本並回傳詳細公式。"""
 
         driver_daily_salary = float(self.get_setting("driver_daily_salary", "0") or 0)
         driver_count = int(float(self.get_setting("driver_count", "0") or 0))
 
         total_salary = driver_daily_salary * driver_count
         if total_salary <= 0:
-            return default_per_trip
+            return round(default_per_trip, 2), {
+                "method": "per_trip",
+                "per_trip_rate": round(default_per_trip, 2),
+                "formula": f"固定每趟 {round(default_per_trip, 2)} 元",
+                "amount": round(default_per_trip, 2)
+            }
 
         trip_query = self.db.query(Dispatch).filter(
             Dispatch.date == dispatch_date,
@@ -329,9 +365,24 @@ class DispatchCalculator:
             total_trips += 1
 
         if total_trips <= 0:
-            return default_per_trip
+            return round(default_per_trip, 2), {
+                "method": "per_trip",
+                "per_trip_rate": round(default_per_trip, 2),
+                "formula": f"固定每趟 {round(default_per_trip, 2)} 元",
+                "amount": round(default_per_trip, 2)
+            }
 
-        return round(total_salary / total_trips, 2)
+        per_trip_cost = round(total_salary / total_trips, 2)
+        return per_trip_cost, {
+            "method": "shared_payroll",
+            "driver_daily_salary": round(driver_daily_salary, 2),
+            "driver_count": driver_count,
+            "total_salary": round(total_salary, 2),
+            "total_trips": total_trips,
+            "include_current_trip": include_current_trip,
+            "formula": f"({round(driver_daily_salary, 2)} × {driver_count} 人) ÷ {total_trips} 趟 = {per_trip_cost}",
+            "amount": per_trip_cost
+        }
     
     # ========================================
     # 收入計算
@@ -350,23 +401,42 @@ class DispatchCalculator:
             {
                 "revenue": 基本收入,
                 "subsidy": 短少補貼,
-                "total_revenue": 總收入
+                "total_revenue": 總收入,
+                "details": {"base": {...}, "subsidy": {...}, "total_formula": str}
             }
         """
         # 基本收入
         revenue = load_m3 * price_per_m3
-        
+        base_detail = {
+            "load_m3": load_m3,
+            "price_per_m3": round(price_per_m3, 2),
+            "formula": f"{load_m3} m³ × {round(price_per_m3, 2)} = {round(revenue, 2)}",
+            "amount": round(revenue, 2)
+        }
+
         # 短少補貼
         subsidy = 0.0
         if load_m3 < (project.subsidy_threshold_m3 or 6.0):
             subsidy = project.subsidy_amount or 500.0
-        
+        subsidy_detail = {
+            "threshold_m3": project.subsidy_threshold_m3 or 6.0,
+            "subsidy_amount": round(project.subsidy_amount or 500.0, 2),
+            "applied": load_m3 < (project.subsidy_threshold_m3 or 6.0),
+            "formula": f"載量 {load_m3} m³ < 門檻 {project.subsidy_threshold_m3 or 6.0}，補貼 {round(subsidy, 2)}",
+            "amount": round(subsidy, 2)
+        }
+
         total_revenue = revenue + subsidy
-        
+
         return {
             "revenue": round(revenue, 2),
             "subsidy": round(subsidy, 2),
-            "total_revenue": round(total_revenue, 2)
+            "total_revenue": round(total_revenue, 2),
+            "details": {
+                "base": base_detail,
+                "subsidy": subsidy_detail,
+                "total_formula": f"{round(revenue, 2)} + {round(subsidy, 2)} = {round(total_revenue, 2)}"
+            }
         }
     
     # ========================================
@@ -547,7 +617,7 @@ class DispatchCalculator:
             )
             
             gross_profit = revenue_calc["total_revenue"] - cost_calc["total_cost"]
-            
+
             return {
                 "status": "OK",
                 "date": dispatch_date.isoformat(),
@@ -564,11 +634,14 @@ class DispatchCalculator:
                 "revenue": revenue_calc["revenue"],
                 "subsidy": revenue_calc["subsidy"],
                 "total_revenue": revenue_calc["total_revenue"],
+                "revenue_details": revenue_calc.get("details", {}),
                 "material_cost": cost_calc["material_cost"],
                 "fuel_cost": cost_calc["fuel_cost"],
                 "driver_cost": cost_calc["driver_cost"],
                 "total_cost": cost_calc["total_cost"],
+                "cost_details": cost_calc.get("details", {}),
                 "gross_profit": round(gross_profit, 2),
+                "gross_profit_formula": f"{revenue_calc['total_revenue']} - {cost_calc['total_cost']} = {round(gross_profit, 2)}",
             }
             
         except Exception as e:
