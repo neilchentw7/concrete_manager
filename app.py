@@ -1215,6 +1215,8 @@ def get_main_page_html():
         .btn-primary { background: linear-gradient(135deg, #667eea, #764ba2); color: white; }
         .btn-success { background: linear-gradient(135deg, #11998e, #38ef7d); color: white; }
         .btn-danger { background: #ff6b6b; color: white; }
+        .btn-secondary { background: #e5e7eb; color: #374151; }
+        .btn-secondary:hover { background: #d1d5db; }
         
         table { width: 100%; border-collapse: collapse; margin-top: 15px; }
         th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
@@ -1254,7 +1256,6 @@ def get_main_page_html():
             <a href="/docs" target="_blank" style="color: white; text-decoration: none; background: rgba(255,255,255,0.2); padding: 8px 16px; border-radius: 20px; margin-left: 10px;">📖 API 文件</a>
         </p>
         
-        <!-- 統計卡片 -->
         <div class="grid" id="stats-grid" style="margin-bottom: 20px;">
             <div class="stat-card">
                 <h3>今日出車</h3>
@@ -1274,14 +1275,12 @@ def get_main_page_html():
             </div>
         </div>
         
-        <!-- 主功能區 -->
         <div class="tabs">
             <button class="tab active" onclick="showTab(event, 'dispatch')">📥 快速出車</button>
             <button class="tab" onclick="showTab(event, 'records')">📋 出車紀錄</button>
             <button class="tab" onclick="showTab(event, 'master')">⚙️ 基礎資料</button>
         </div>
         
-        <!-- 快速出車 -->
         <div id="tab-dispatch" class="card">
             <h2>📥 快速出車登錄</h2>
             <p style="color:#666; margin-bottom:20px;">只輸入總出貨量與車次，不需逐車登錄司機資訊。</p>
@@ -1334,7 +1333,6 @@ def get_main_page_html():
             </div>
         </div>
         
-        <!-- 出車紀錄 -->
         <div id="tab-records" class="card" style="display:none;">
             <h2>📋 出車紀錄查詢</h2>
             <div class="form-row">
@@ -1357,7 +1355,6 @@ def get_main_page_html():
             <div id="records-result"></div>
         </div>
         
-        <!-- 基礎資料 -->
         <div id="tab-master" class="card" style="display:none;">
             <h2>⚙️ 基礎資料管理</h2>
             <p>API 文件：<a href="/docs" target="_blank">/docs</a></p>
@@ -1399,13 +1396,13 @@ def get_main_page_html():
             document.getElementById('truck-count').textContent = trucks.length;
             document.getElementById('mix-count').textContent = mixes.length;
 
-            document.getElementById('project-list').innerHTML = projects.map(p =>
+            document.getElementById('project-list').innerHTML = projects.map(p => 
                 `<div style="padding:8px; border-bottom:1px solid #eee;">${p.code} - ${p.name}</div>`
             ).join('');
-            document.getElementById('truck-list').innerHTML = trucks.map(t =>
+            document.getElementById('truck-list').innerHTML = trucks.map(t => 
                 `<div style="padding:8px; border-bottom:1px solid #eee;">${t.code} - ${t.plate_no} (${t.driver_name || '-'})</div>`
             ).join('');
-            document.getElementById('mix-list').innerHTML = mixes.map(m =>
+            document.getElementById('mix-list').innerHTML = mixes.map(m => 
                 `<div style="padding:8px; border-bottom:1px solid #eee;">${m.code} - ${m.psi}psi</div>`
             ).join('');
 
