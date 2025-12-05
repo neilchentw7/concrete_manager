@@ -14,9 +14,9 @@ import difflib
 import re
 
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 
-from models import Project, Mix, Truck, ProjectPrice, Dispatch, Setting
+from models import Project, Mix, Truck, ProjectPrice, Dispatch, Setting, DailySummary
 
 
 class DispatchCalculator:
@@ -264,7 +264,9 @@ class DispatchCalculator:
         truck: Truck,
         load_m3: float,
         distance_km: float,
-        fuel_price: Optional[float] = None
+        fuel_price: Optional[float] = None,
+        dispatch_date: Optional[date] = None,
+        include_current_trip: bool = False,
     ) -> Dict[str, float]:
         """
         計算所有成本
@@ -285,9 +287,11 @@ class DispatchCalculator:
         
         # 油料成本 = 距離(來回) × 油耗 × 油價
         fuel_cost = (distance_km * 2) * (truck.fuel_l_per_km or 0.5) * fuel_price
-        
+
         # 司機成本
         driver_cost = truck.driver_pay_per_trip or 800.0
+        if dispatch_date:
+            driver_cost = self.calculate_driver_cost(dispatch_date, include_current_trip, default_per_trip=driver_cost)
         
         total_cost = material_cost + fuel_cost + driver_cost
         
@@ -297,6 +301,37 @@ class DispatchCalculator:
             "driver_cost": round(driver_cost, 2),
             "total_cost": round(total_cost, 2)
         }
+
+    def calculate_driver_cost(self, dispatch_date: date, include_current_trip: bool, default_per_trip: float) -> float:
+        """根據當日總車次平均分攤司機成本。"""
+
+        driver_daily_salary = float(self.get_setting("driver_daily_salary", "0") or 0)
+        driver_count = int(float(self.get_setting("driver_count", "0") or 0))
+
+        total_salary = driver_daily_salary * driver_count
+        if total_salary <= 0:
+            return default_per_trip
+
+        trip_query = self.db.query(Dispatch).filter(
+            Dispatch.date == dispatch_date,
+            Dispatch.status != "cancelled"
+        )
+        existing_trips = trip_query.count()
+
+        summary_trips = (
+            self.db.query(func.coalesce(func.sum(DailySummary.trips), 0))
+            .filter(DailySummary.date == dispatch_date)
+            .scalar()
+        ) or 0
+
+        total_trips = existing_trips + summary_trips
+        if include_current_trip:
+            total_trips += 1
+
+        if total_trips <= 0:
+            return default_per_trip
+
+        return round(total_salary / total_trips, 2)
     
     # ========================================
     # 收入計算
@@ -401,7 +436,16 @@ class DispatchCalculator:
         revenue_calc = self.calculate_revenue(project, load_m3, price_per_m3)
         
         # 9. 計算成本
-        cost_calc = self.calculate_costs(project, mix, truck, load_m3, distance_km, fuel_price)
+        cost_calc = self.calculate_costs(
+            project,
+            mix,
+            truck,
+            load_m3,
+            distance_km,
+            fuel_price,
+            dispatch_date,
+            include_current_trip=True,
+        )
         
         # 10. 計算毛利
         gross_profit = revenue_calc["total_revenue"] - cost_calc["total_cost"]
@@ -491,7 +535,16 @@ class DispatchCalculator:
             price_per_m3 = self.get_price(project, mix, dispatch_date)
             
             revenue_calc = self.calculate_revenue(project, load_m3, price_per_m3)
-            cost_calc = self.calculate_costs(project, mix, truck, load_m3, distance_km, fuel_price)
+            cost_calc = self.calculate_costs(
+                project,
+                mix,
+                truck,
+                load_m3,
+                distance_km,
+                fuel_price,
+                dispatch_date,
+                include_current_trip=True,
+            )
             
             gross_profit = revenue_calc["total_revenue"] - cost_calc["total_cost"]
             
